@@ -26,6 +26,12 @@ if(NOT EXISTS "${LIBYUV_DIR}/CMakeLists.txt")
   message(FATAL_ERROR "libyuv submodule is missing at ${LIBYUV_DIR}")
 endif()
 
+# libyuv probes for a system libjpeg and, when found, compiles its MJPEG
+# decoder with JPEG references. The binding does not expose MJPEG, and CI hosts
+# may have libjpeg installed while our JNI/wasm link lines do not, so keep the
+# archive self-contained by disabling the optional dependency everywhere.
+set(LIBYUV_DISABLE_JPEG ON CACHE BOOL "Disable libyuv JPEG support" FORCE)
+
 # EXCLUDE_FROM_ALL keeps libyuv's shared library and command line tools out of
 # the build; only the static `yuv` archive that we extend is required.
 add_subdirectory("${LIBYUV_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/libyuv" EXCLUDE_FROM_ALL)

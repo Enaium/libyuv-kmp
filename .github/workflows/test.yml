@@ -85,7 +85,7 @@ jobs:
         run: |
           SDKMANAGER="$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-37" "ndk;27.0.12077973" >/dev/null
+          "$SDKMANAGER" "platforms;android-37.0" "platforms;android-37.1" "ndk;27.0.12077973" >/dev/null
 
       - name: Run JVM, Linux, Android host and cross-target tests
         run: >
