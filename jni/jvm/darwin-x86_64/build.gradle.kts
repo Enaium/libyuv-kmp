@@ -53,6 +53,7 @@ val configureJniLibrary = tasks.register<Exec>("configureJniLibrary") {
         "-DJNI_INCLUDE_DIR=$jniInclude",
         "-DJNI_INCLUDE_DIR_PLATFORM=$jniInclude/darwin",
         "-DCMAKE_TOOLCHAIN_FILE=${rootProject.file("jni/toolchains/darwin-x86_64.cmake").absolutePath}",
+        "-DCMAKE_OSX_ARCHITECTURES=x86_64",
         "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${outDir.absolutePath}",
     )
 }

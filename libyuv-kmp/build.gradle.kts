@@ -427,9 +427,11 @@ fun registerNativeBuildTasks(targetName: String, cmakeFlags: List<String> = empt
 if (hostOs.isMacOsX) {
     registerNativeBuildTasks("macosArm64", listOf(
         "-DCMAKE_TOOLCHAIN_FILE=${jniDir.resolve("toolchains/darwin-arm64.cmake").absolutePath}",
+        "-DCMAKE_OSX_ARCHITECTURES=arm64",
     ))
     registerNativeBuildTasks("macosX64", listOf(
         "-DCMAKE_TOOLCHAIN_FILE=${jniDir.resolve("toolchains/darwin-x86_64.cmake").absolutePath}",
+        "-DCMAKE_OSX_ARCHITECTURES=x86_64",
     ))
     registerNativeBuildTasks("iosArm64", listOf(
         "-DCMAKE_SYSTEM_NAME=iOS",
@@ -490,13 +492,16 @@ if (hostOs.isMacOsX) {
 } else if (hostOs.isLinux) {
     registerNativeBuildTasks("linuxX64")
     if (System.getProperty("os.arch").lowercase() in listOf("aarch64", "arm64")) {
-        registerNativeBuildTasks("linuxArm64")
+        registerNativeBuildTasks("linuxArm64", listOf(
+            "-DCAN_COMPILE_SME=FALSE",
+        ))
     } else {
         registerNativeBuildTasks("linuxArm64", listOf(
             "-DCMAKE_SYSTEM_NAME=Linux",
             "-DCMAKE_SYSTEM_PROCESSOR=aarch64",
             "-DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc",
             "-DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++",
+            "-DCAN_COMPILE_SME=FALSE",
         ))
     }
     registerNativeBuildTasks("mingwX64", listOf(
