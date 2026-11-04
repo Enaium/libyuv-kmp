@@ -1,0 +1,10 @@
+headers = libyuv_kmp.h
+compilerOpts = -std=c11
+# libyuv's comparison helpers reference log10; Kotlin/Native does not add libm
+# to the final link line by default on these targets.
+linkerOpts.linux_x64 = -lm
+linkerOpts.linux_arm64 = -lm
+linkerOpts.android_arm64 = -lm
+linkerOpts.android_arm32 = -lm
+linkerOpts.android_x64 = -lm
+linkerOpts.android_x86 = -lm

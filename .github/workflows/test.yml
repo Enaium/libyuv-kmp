@@ -1,0 +1,162 @@
+name: Test
+
+"on":
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-macos:
+    name: Test macOS (JVM + Apple + web)
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Configure JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Setup Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install latest
+          "$HOME/emsdk/emsdk" activate latest
+          echo "EMSDK=$HOME/emsdk" >> "$GITHUB_ENV"
+
+      - name: Run JVM, native and web tests
+        run: >
+          ./gradlew --no-daemon --stacktrace
+          :libyuv-kmp:jvmTest
+          :libyuv-kmp:macosArm64Test
+          :libyuv-kmp:jsNodeTest
+          :libyuv-kmp:wasmJsNodeTest
+
+      - name: Compile the remaining Apple targets
+        run: >
+          ./gradlew --no-daemon --stacktrace
+          :libyuv-kmp:compileKotlinMacosX64
+          :libyuv-kmp:compileKotlinIosArm64
+          :libyuv-kmp:compileKotlinIosX64
+          :libyuv-kmp:compileKotlinIosSimulatorArm64
+          :libyuv-kmp:compileKotlinTvosArm64
+          :libyuv-kmp:compileKotlinTvosSimulatorArm64
+          :libyuv-kmp:compileKotlinWatchosArm64
+          :libyuv-kmp:compileKotlinWatchosSimulatorArm64
+          :libyuv-kmp:compileKotlinWatchosDeviceArm64
+
+  test-linux:
+    name: Test Linux (JVM + Linux + cross + Android)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Configure JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install cross-compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Install Android SDK components
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-37" "ndk;27.0.12077973" >/dev/null
+
+      - name: Run JVM, Linux, Android host and cross-target tests
+        run: >
+          ./gradlew --no-daemon --stacktrace
+          :libyuv-kmp:jvmTest
+          :libyuv-kmp:linuxX64Test
+          :libyuv-kmp:testAndroidHostTest
+          :libyuv-kmp:linkDebugTestMingwX64
+          :libyuv-kmp:linkDebugTestLinuxArm64
+          :libyuv-kmp:compileKotlinLinuxArm64
+          :libyuv-kmp:compileKotlinAndroidNativeArm64
+          --continue
+
+      - name: Assemble the Android example
+        run: ./gradlew --no-daemon --stacktrace :examples:codec:assembleDebug
+
+      - name: Verify the JNI library per ABI
+        run: |
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            lib="libyuv-kmp/build/jniLibs/$abi/libyuv_jni.so"
+            echo "=== $abi: $lib ==="
+            if [ ! -f "$lib" ]; then
+              echo "FAIL: no JNI library for $abi"
+              exit 1
+            fi
+            echo "OK: $(du -h "$lib" | cut -f1)"
+          done
+
+      - name: Verify the static archives
+        run: |
+          for target in linuxX64 linuxArm64 mingwX64 androidNativeArm64; do
+            archive="libyuv-kmp/build/native/$target/libyuv_kmp.a"
+            echo "=== $target: $archive ==="
+            if [ ! -f "$archive" ]; then
+              echo "FAIL: no static archive for $target"
+              exit 1
+            fi
+            echo "OK: $(du -h "$archive" | cut -f1)"
+          done
+
+  test-windows:
+    name: Test Windows (JVM + MinGW)
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Configure JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install MinGW
+        shell: pwsh
+        run: |
+          choco install mingw -y --no-progress
+          echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\bin" |
+            Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Run JVM and MinGW tests
+        run: ./gradlew --no-daemon --stacktrace :libyuv-kmp:jvmTest :libyuv-kmp:mingwX64Test
+
+      - name: Verify the Windows JNI library
+        shell: pwsh
+        run: |
+          $dll = "jni/jvm/windows-x86_64/build/jni-native/windows-x86_64/yuv_jni.dll"
+          if (!(Test-Path $dll)) { throw "Missing $dll" }
+          Write-Output "OK: $((Get-Item $dll).Length) bytes"
