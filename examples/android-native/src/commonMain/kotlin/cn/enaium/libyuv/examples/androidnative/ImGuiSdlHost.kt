@@ -26,14 +26,17 @@ import cn.enaium.imgui.ImFontConfig
 import cn.enaium.imgui.ImGui
 import cn.enaium.imgui.ImTextureID
 import cn.enaium.imgui.backends.sdl.ImGuiSdlBackend
-import cn.enaium.imgui.backends.sdl.ImGuiSdlGpuBackend
 import cn.enaium.imgui.backends.sdl.ImGuiSdlRendererBackend
+import cn.enaium.imgui.backends.sdl.toImTextureID
 import cn.enaium.sdl.SDL
+import cn.enaium.sdl.SDLBlendMode
 import cn.enaium.sdl.SDLColor
 import cn.enaium.sdl.SDLEvent
-import cn.enaium.sdl.SDLGPU
-import cn.enaium.sdl.SDLGPUDevice
 import cn.enaium.sdl.SDLInitFlags
+import cn.enaium.sdl.SDLPixelFormat
+import cn.enaium.sdl.SDLScaleMode
+import cn.enaium.sdl.SDLTexture
+import cn.enaium.sdl.SDLTextureAccess
 import cn.enaium.sdl.SDLWindow
 import cn.enaium.sdl.SDLWindowEventType
 import cn.enaium.sdl.SDLWindowFlags
@@ -44,7 +47,11 @@ import cn.enaium.sdl.SDLWindowFlags
  */
 internal object ImGuiSdlHost {
 
-    fun run(title: String, frames: Int = Int.MAX_VALUE, draw: (frame: Int) -> Unit): Boolean {
+    fun run(
+        title: String,
+        frames: Int = Int.MAX_VALUE,
+        draw: (frame: Int, presenter: FramePresenter) -> Unit,
+    ): Boolean {
         SDL.setMainReady()
         if (!SDL.init(SDLInitFlags.VIDEO or SDLInitFlags.EVENTS)) {
             println("SDL_Init failed: ${SDL.error()}$videoInitHint")
@@ -62,16 +69,15 @@ internal object ImGuiSdlHost {
         ).use { window ->
             if (windowStartsFullscreen) window.fullscreen = true
 
-            val gpuDevice = if (SDLGPU.isSupported) SDLGPU.createDevice() else null
             val context = ImGui.createContext()
             try {
                 val platform = ImGuiSdlBackend(window)
                 platform.init()
-                val frameBackend = if (gpuDevice != null) {
-                    GpuFrameBackend(gpuDevice, window, platform)
-                } else {
-                    RendererFrameBackend(window)
-                }
+                // The 2D renderer is used on every platform: SDL_GPU needs the
+                // window to be claimed by the GPU device before its swapchain
+                // format can be queried, which the imgui-kmp backend does not do
+                // on Android. The renderer path is the portable one.
+                val frameBackend = RendererFrameBackend(window)
                 try {
                     // Bake the font atlas at the display's pixel density so the
                     // text stays crisp on Retina and high-density phone screens.
@@ -97,7 +103,7 @@ internal object ImGuiSdlHost {
                         }
 
                         platform.newFrame()
-                        draw(frame)
+                        draw(frame, frameBackend)
                         ImGui.render()
                         frameBackend.render()
                         frame++
@@ -112,51 +118,50 @@ internal object ImGuiSdlHost {
         return true
     }
 
-    /** Presents ImGui frames with one of SDL's rendering paths. */
-    private interface FrameBackend {
+    /** Uploads a full decoded frame for [ImGui.image]. */
+    internal interface FramePresenter {
+        fun uploadRgba(pixels: ByteArray, width: Int, height: Int): ImTextureID
+    }
+
+    private interface FrameBackend : FramePresenter {
         fun uploadFontTexture(pixels: ByteArray, width: Int, height: Int): ImTextureID
         fun render()
         fun close()
     }
 
-    /** SDL_GPU: one command buffer per frame, drawn into the swapchain texture. */
-    private class GpuFrameBackend(
-        private val device: SDLGPUDevice,
-        private val window: SDLWindow,
-        private val platform: ImGuiSdlBackend,
-    ) : FrameBackend {
-        private val backend = ImGuiSdlGpuBackend(device, window)
-
-        override fun uploadFontTexture(pixels: ByteArray, width: Int, height: Int): ImTextureID =
-            backend.uploadFontTexture(pixels, width, height)
-
-        override fun render() {
-            val commandBuffer = device.beginCommandBuffer()
-            if (commandBuffer == null) {
-                println("SDL_AcquireGPUCommandBuffer failed: ${SDL.error()}")
-                return
-            }
-            val swapchain = device.acquireSwapchainTexture(commandBuffer, window)
-            val target = swapchain?.texture
-            if (target != null) {
-                val size = platform.sizeInPixels
-                backend.renderFrame(commandBuffer, target, size.x.toInt(), size.y.toInt())
-            }
-            device.submit(commandBuffer)
-        }
-
-        override fun close() {
-            backend.close()
-        }
-    }
-
-    /** SDL's 2D renderer, used where SDL_GPU is not available. */
+    /** SDL's 2D renderer. */
     private class RendererFrameBackend(window: SDLWindow) : FrameBackend {
         private val renderer = SDL.createRenderer(window)
         private val backend = ImGuiSdlRendererBackend(renderer)
+        private var image: SDLTexture? = null
+        private var imageWidth = 0
+        private var imageHeight = 0
 
         override fun uploadFontTexture(pixels: ByteArray, width: Int, height: Int): ImTextureID =
             backend.uploadFontTexture(pixels, width, height)
+
+        override fun uploadRgba(pixels: ByteArray, width: Int, height: Int): ImTextureID {
+            val texture = if (image == null || imageWidth != width || imageHeight != height) {
+                image?.let { backend.unregisterTexture(it) }
+                val created = renderer.createTexture(
+                    format = SDLPixelFormat.RGBA32,
+                    access = SDLTextureAccess.STREAMING,
+                    width = width,
+                    height = height,
+                )
+                created.blendMode = SDLBlendMode.BLEND
+                created.scaleMode = SDLScaleMode.LINEAR
+                backend.registerTexture(created)
+                image = created
+                imageWidth = width
+                imageHeight = height
+                created
+            } else {
+                image!!
+            }
+            texture.update(rect = null, pixels = pixels, pitch = width * 4)
+            return texture.toImTextureID()
+        }
 
         override fun render() {
             renderer.drawColor = SDLColor(18, 18, 24)

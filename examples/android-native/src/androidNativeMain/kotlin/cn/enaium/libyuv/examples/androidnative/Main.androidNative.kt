@@ -28,10 +28,12 @@
 package cn.enaium.libyuv.examples.androidnative
 
 import cn.enaium.sdl.SDL
+import cn.enaium.sdl.SDLLog
 import kotlin.native.CName
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CPointerVar
+import platform.android.__android_log_write
 
 /**
  * Android native entry point.
@@ -42,7 +44,15 @@ import kotlinx.cinterop.CPointerVar
  */
 @CName("SDL_main")
 fun sdlMain(argc: Int, argv: CPointer<CPointerVar<ByteVar>>?): Int {
-    val ok = runLibYuvExample()
-    SDL.quit()
-    return if (ok) 0 else 1
+    return try {
+        val ok = runLibYuvExample()
+        SDL.quit()
+        if (ok) 0 else 1
+    } catch (t: Throwable) {
+        __android_log_write(6, "LibYuvNative", "failed: ${t.message}")
+        SDLLog.error("libyuv native example failed: ${t.message}")
+        t.printStackTrace()
+        SDL.quit()
+        1
+    }
 }

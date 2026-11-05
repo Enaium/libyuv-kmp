@@ -198,18 +198,28 @@ The UI reports the encoded and decoded frame counts, and the
 
 `examples/android-native` is a Kotlin/Native example built with
 [sdl-kmp](https://github.com/Enaium/sdl-kmp) and
-[imgui-kmp](https://github.com/Enaium/imgui-kmp). The same code is packaged as
-an Android native shared library (`libmain.so`, loaded by SDLActivity) and as
-a desktop executable for running the UI on the build host.
+[imgui-kmp](https://github.com/Enaium/imgui-kmp). It runs the same
+capture -> convert -> encode -> decode -> present loop as the JVM example, but
+the whole pipeline is native:
 
-Each frame generates an RGB24 colour-bar or gradient pattern, runs
-`RGB24ToI420`, optionally `I420Rotate`, and finally `I420ToRGBA` through
-libyuv-kmp. The RGBA output is sampled into ImGui's draw list, so the example
-uses only the public libyuv API and needs no renderer-specific texture upload
-path. The UI switches the pattern and rotation angle.
+1. SDL3 opens the back camera at 640x480 NV12 (the full camera spec includes
+   its colorspace, so the native binding can select the format directly).
+2. libyuv converts the camera frame to I420; the user can rotate it in 90°
+   steps before encoding.
+3. The NDK `AMediaCodec` API encodes H.264 from the I420 frame in NV12 layout
+   and feeds the encoded access units to a second `AMediaCodec` decoder.
+4. The decoder's YUV output is converted to RGBA with libyuv and uploaded to an
+   SDL texture; ImGui draws the texture with the frame counters, camera
+   description and rotation in an overlay.
 
-Build the APK for an arm64 device (the wrapper also supports
-`armeabi-v7a`, `x86` and `x86_64`; select them with `-PandroidAbis`):
+The shared library is packaged as `libmain.so` and loaded by SDLActivity; the
+wrapper APK supports `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`. The same UI
+is also built as a macOS executable for development, where the camera/MediaCodec
+half is replaced by a synthetic preview (Android's MediaCodec is not available
+on desktop).
+
+Build and install the Android native APK (select the ABIs with `-PandroidAbis`;
+the arm64 build is enough for a physical device):
 
 ```bash
 ./gradlew :examples:android-native:android:assembleDebug -PandroidAbis=arm64-v8a

@@ -22,7 +22,10 @@
 
 package cn.enaium.libyuv.examples.androidnative
 
+import android.Manifest
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.os.Bundle
 import org.libsdl.app.SDLActivity
 
 /**
@@ -42,8 +45,19 @@ class MainActivity : SDLActivity() {
      */
     override fun getLibraries(): Array<String> = arrayOf("c++_shared", "main")
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQUEST)
+        }
+        super.onCreate(savedInstanceState)
+    }
+
     /** The example is laid out for the wider axis. */
     override fun setOrientationBis(w: Int, h: Int, resizable: Boolean, hint: String?) {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
+
+    private companion object {
+        const val CAMERA_REQUEST = 1
     }
 }
