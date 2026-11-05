@@ -166,14 +166,16 @@ if (LibYuv.testCpuFlag(CpuFlag.HAS_SSE2)) {
 LibYuv.maskCpuFlags(0) // disable all optional CPU features
 ```
 
-## Android example
+## Android examples
 
-`examples/codec` is a Compose camera app that demonstrates the full
+### Android JVM (`examples/android-jvm`)
+
+`examples/android-jvm` is a Compose camera app that demonstrates the full
 encode/decode loopback with CameraX and MediaCodec:
 
 1. CameraX `ImageAnalysis` produces `YUV_420_888` frames.
-2. The library's `ImageProxy.toI420()` extension copies the planes into I420
-   (planar and semi-planar chroma layouts are both handled).
+2. The library's `ImageProxy.toI420()` extension converts the planes into
+   direct I420 buffers (planar and semi-planar chroma layouts are both handled).
 3. libyuv rotates the frame according to `ImageInfo.rotationDegrees`.
 4. The encoder prefers a flexible AVC color format and fills the codec's
    `Image` planes through the library's `Image.writeI420()`, which preserves
@@ -186,11 +188,44 @@ encode/decode loopback with CameraX and MediaCodec:
 Run it with:
 
 ```bash
-./gradlew :examples:codec:installDebug
+./gradlew :examples:android-jvm:installDebug
 ```
 
 The UI reports the encoded and decoded frame counts, and the
 `TextureView` shows the decoded stream.
+
+### Android Native (`examples/android-native`)
+
+`examples/android-native` is a Kotlin/Native example built with
+[sdl-kmp](https://github.com/Enaium/sdl-kmp) and
+[imgui-kmp](https://github.com/Enaium/imgui-kmp). The same code is packaged as
+an Android native shared library (`libmain.so`, loaded by SDLActivity) and as
+a desktop executable for running the UI on the build host.
+
+Each frame generates an RGB24 colour-bar or gradient pattern, runs
+`RGB24ToI420`, optionally `I420Rotate`, and finally `I420ToRGBA` through
+libyuv-kmp. The RGBA output is sampled into ImGui's draw list, so the example
+uses only the public libyuv API and needs no renderer-specific texture upload
+path. The UI switches the pattern and rotation angle.
+
+Build the APK for an arm64 device (the wrapper also supports
+`armeabi-v7a`, `x86` and `x86_64`; select them with `-PandroidAbis`):
+
+```bash
+./gradlew :examples:android-native:android:assembleDebug -PandroidAbis=arm64-v8a
+adb install -r examples/android-native/android/build/outputs/apk/debug/android-debug.apk
+```
+
+Run the identical UI on macOS without an Android device:
+
+```bash
+./gradlew :examples:android-native:linkDebugExecutableMacosArm64
+LIBYUV_KMP_FRAMES=300 \
+  ./examples/android-native/build/bin/macosArm64/debugExecutable/android-native.kexe
+```
+
+`LIBYUV_KMP_FRAMES` bounds the desktop run; without it the window stays open
+until closed.
 
 ## Building
 
@@ -212,7 +247,8 @@ cd libyuv-kmp
 ./gradlew :libyuv-kmp:macosArm64Test
 ./gradlew :libyuv-kmp:jsNodeTest :libyuv-kmp:wasmJsNodeTest
 ./gradlew :libyuv-kmp:testAndroidHostTest
-./gradlew :examples:codec:assembleDebug
+./gradlew :examples:android-jvm:assembleDebug
+./gradlew :examples:android-native:android:assembleDebug -PandroidAbis=arm64-v8a
 ```
 
 The Emscripten build is generated on demand by `:libyuv-kmp:buildWebWasm`;

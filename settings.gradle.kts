@@ -16,7 +16,9 @@ dependencyResolutionManagement {
 rootProject.name = "libyuv-kmp"
 
 include(":libyuv-kmp")
-include(":examples:codec")
+include(":examples:android-jvm")
+include(":examples:android-native")
+include(":examples:android-native:android")
 
 // Per-OS/arch JNI artifacts that ship the prebuilt libyuv_jni shared library as
 // a classpath resource. NativeLoader extracts the matching one at runtime.

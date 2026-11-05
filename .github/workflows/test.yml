@@ -137,8 +137,10 @@ jobs:
           :libyuv-kmp:compileKotlinAndroidNativeArm64
           --continue
 
-      - name: Assemble the Android example
-        run: ./gradlew --no-daemon --stacktrace :examples:codec:assembleDebug
+      - name: Assemble the Android examples
+        run: |
+          ./gradlew --no-daemon --stacktrace :examples:android-jvm:assembleDebug
+          ./gradlew --no-daemon --stacktrace :examples:android-native:android:assembleDebug -PandroidAbis=arm64-v8a
 
       - name: Verify the JNI library per ABI
         run: |
