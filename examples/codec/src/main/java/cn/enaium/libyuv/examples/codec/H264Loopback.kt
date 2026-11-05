@@ -27,33 +27,34 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
-import android.media.MediaMuxer
 import android.os.Build
 import android.util.Log
+import android.view.Surface
 import cn.enaium.libyuv.FourCC
 import cn.enaium.libyuv.LibYuv
 import cn.enaium.libyuv.Rotation
-import java.io.File
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 
 internal data class EncoderResult(
-    val frames: Long,
-    val bytes: Long,
+    val encodedFrames: Long,
+    val decodedFrames: Long,
     val error: Throwable?,
 )
 
 /**
- * H.264 encoder fed with I420 frames from CameraX.
+ * H.264 encode/decode loopback fed with I420 frames from CameraX.
  *
  * The encoder prefers a flexible color format: its `Image` input exposes the
  * codec's real row/pixel strides, so aligned input buffers are filled correctly.
  * Semi-planar and planar fallbacks are converted from I420 with libyuv. The
- * encoded samples are muxed into an MP4 with [MediaMuxer].
+ * produced H.264 samples are handed to a MediaCodec decoder whose output surface
+ * is the example's [TextureView], so the encoded/decoded stream is rendered
+ * directly to the screen without a file or muxer.
  */
-internal class H264Encoder(
-    val outputFile: File,
-    private val onStats: (frames: Long, bytes: Long) -> Unit,
+internal class H264Loopback(
+    private val outputSurface: Surface,
+    private val onStats: (encoded: Long, decoded: Long) -> Unit,
     private val onError: (Throwable) -> Unit,
 ) {
     private val queue = ArrayBlockingQueue<I420Frame>(2)
@@ -62,21 +63,22 @@ internal class H264Encoder(
     private var running = false
 
     private var worker: Thread? = null
-    private var codec: MediaCodec? = null
-    private var muxer: MediaMuxer? = null
-    private var trackIndex = -1
-    private var muxerStarted = false
+    private var encoder: MediaCodec? = null
+    private var decoder: MediaCodec? = null
     private var colorFormat = 0
     private var configured = false
-    private var frameCount = 0L
-    private var byteCount = 0L
+    private var frameWidth = 0
+    private var frameHeight = 0
+    private var encodedFrames = 0L
+    private var decodedFrames = 0L
     private var lastPtsUs = 0L
     private var failure: Throwable? = null
 
     fun start() {
         if (running) return
+        require(outputSurface.isValid) { "The decoder output surface is not valid" }
         running = true
-        worker = Thread(::encodeLoop, "libyuv-h264-encoder").apply {
+        worker = Thread(::loop, "libyuv-h264-loopback").apply {
             isDaemon = true
             start()
         }
@@ -85,7 +87,7 @@ internal class H264Encoder(
     /** Queues a frame without blocking the CameraX analysis thread. */
     fun offer(frame: I420Frame): Boolean = running && queue.offer(frame)
 
-    /** Stops the worker, drains the codec and returns the final counters. */
+    /** Stops the worker, drains both codecs and returns the final counters. */
     fun stop(): EncoderResult {
         running = false
         val thread = worker
@@ -95,10 +97,10 @@ internal class H264Encoder(
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
         }
-        return EncoderResult(frameCount, byteCount, failure)
+        return EncoderResult(encodedFrames, decodedFrames, failure)
     }
 
-    private fun encodeLoop() {
+    private fun loop() {
         try {
             while (running || queue.isNotEmpty()) {
                 val frame = if (running) queue.poll(200, TimeUnit.MILLISECONDS) else queue.poll()
@@ -107,7 +109,7 @@ internal class H264Encoder(
                     continue
                 }
                 val prepared = rotateIfNeeded(frame)
-                if (!configured) configure(prepared)
+                if (!configured) configureEncoder(prepared)
                 encode(prepared)
             }
             finish()
@@ -144,9 +146,11 @@ internal class H264Encoder(
         return I420Frame(width, height, y, u, v, 0, frame.presentationTimeUs)
     }
 
-    private fun configure(frame: I420Frame) {
+    private fun configureEncoder(frame: I420Frame) {
         val (info, selectedColorFormat) = chooseEncoder()
         colorFormat = selectedColorFormat
+        frameWidth = frame.width
+        frameHeight = frame.height
 
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, frame.width, frame.height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat)
@@ -163,12 +167,11 @@ internal class H264Encoder(
         try {
             codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
-            this.codec = codec
+            encoder = codec
             Log.i(
                 "LibYuvCodec",
                 "encoder=${info.name} colorFormat=$selectedColorFormat ${frame.width}x${frame.height}",
             )
-            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             configured = true
         } catch (error: Throwable) {
             runCatching { codec.release() }
@@ -187,8 +190,7 @@ internal class H264Encoder(
         for (info in ordered) {
             val formats = info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).colorFormats.toSet()
             // Flexible exposes the codec's real plane strides through
-            // getInputImage, which avoids guessing the input stride. Fall back
-            // to the explicit layouts when the codec only advertises those.
+            // getInputImage, which avoids guessing the input stride.
             val selected = when {
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible in formats ->
                     MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
@@ -204,15 +206,12 @@ internal class H264Encoder(
     }
 
     private fun encode(frame: I420Frame) {
-        val codec = codec ?: return
+        val codec = encoder ?: return
         val inputIndex = codec.dequeueInputBuffer(10_000)
         if (inputIndex < 0) return
         val pts = maxOf(frame.presentationTimeUs, lastPtsUs + 1)
         lastPtsUs = pts
 
-        // Flexible encoders expose their real plane layout as an Image. That
-        // layout may use aligned row strides, so writing the image planes is
-        // the only reliable way to feed it.
         val image = runCatching { codec.getInputImage(inputIndex) }.getOrNull()
         val queued = if (image != null) {
             try {
@@ -244,9 +243,8 @@ internal class H264Encoder(
             codec.queueInputBuffer(inputIndex, 0, packed.size, pts, 0)
         }
 
-        frameCount++
-        drain()
-        onStats(frameCount, byteCount)
+        encodedFrames++
+        drainEncoder()
     }
 
     private fun fillImage(image: Image, frame: I420Frame) {
@@ -295,20 +293,14 @@ internal class H264Encoder(
         return packed
     }
 
-    private fun drain(endOfStream: Boolean = false) {
-        val codec = codec ?: return
+    private fun drainEncoder(endOfStream: Boolean = false) {
+        val codec = encoder ?: return
         val info = MediaCodec.BufferInfo()
         var idleSpins = 0
         while (true) {
             val index = codec.dequeueOutputBuffer(info, if (endOfStream) 10_000 else 0)
             when {
-                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    check(!muxerStarted) { "encoder output format changed twice" }
-                    val muxer = muxer ?: error("muxer is not initialized")
-                    trackIndex = muxer.addTrack(codec.outputFormat)
-                    muxer.start()
-                    muxerStarted = true
-                }
+                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> configureDecoder(codec.outputFormat)
 
                 index == MediaCodec.INFO_TRY_AGAIN_LATER -> {
                     if (!endOfStream) return
@@ -319,23 +311,93 @@ internal class H264Encoder(
 
                 index >= 0 -> {
                     val buffer = codec.getOutputBuffer(index) ?: error("encoder returned no output buffer")
-                    if (info.size > 0 && muxerStarted &&
-                        (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0
-                    ) {
-                        buffer.position(info.offset)
-                        buffer.limit(info.offset + info.size)
-                        muxer?.writeSampleData(trackIndex, buffer, info)
-                        byteCount += info.size.toLong()
+                    val isCodecConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+                    val isEndOfStream = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                    if (!isCodecConfig && (info.size > 0 || isEndOfStream)) {
+                        feedDecoder(buffer, info)
                     }
                     codec.releaseOutputBuffer(index, false)
-                    if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) return
+                    if (isEndOfStream) return
+                }
+            }
+        }
+    }
+
+    private fun configureDecoder(format: MediaFormat) {
+        if (decoder != null) return
+        val csd0 = format.getByteBuffer("csd-0")?.duplicate()?.apply { position(0) }
+            ?: error("AVC encoder output has no csd-0")
+        val decoderFormat = MediaFormat.createVideoFormat(
+            MediaFormat.MIMETYPE_VIDEO_AVC,
+            frameWidth,
+            frameHeight,
+        ).apply {
+            setByteBuffer("csd-0", csd0)
+            format.getByteBuffer("csd-1")?.duplicate()?.apply { position(0) }?.let {
+                setByteBuffer("csd-1", it)
+            }
+        }
+        val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        try {
+            codec.configure(decoderFormat, outputSurface, null, 0)
+            codec.start()
+            decoder = codec
+            Log.i("LibYuvCodec", "decoder=${codec.name} surface=$outputSurface")
+        } catch (error: Throwable) {
+            runCatching { codec.release() }
+            throw error
+        }
+    }
+
+    private fun feedDecoder(source: java.nio.ByteBuffer, info: MediaCodec.BufferInfo) {
+        val codec = decoder ?: return
+        val inputIndex = codec.dequeueInputBuffer(10_000)
+        if (inputIndex < 0) return
+        val input = codec.getInputBuffer(inputIndex) ?: return
+        input.clear()
+        if (info.size > 0) {
+            source.position(info.offset)
+            source.limit(info.offset + info.size)
+            input.put(source)
+        }
+        val flags = if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+            MediaCodec.BUFFER_FLAG_END_OF_STREAM
+        } else {
+            0
+        }
+        codec.queueInputBuffer(inputIndex, 0, info.size, info.presentationTimeUs, flags)
+        drainDecoder()
+    }
+
+    private fun drainDecoder(endOfStream: Boolean = false) {
+        val codec = decoder ?: return
+        val info = MediaCodec.BufferInfo()
+        var idleSpins = 0
+        while (true) {
+            val index = codec.dequeueOutputBuffer(info, if (endOfStream) 10_000 else 0)
+            when {
+                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
+
+                index == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                    if (!endOfStream) return
+                    if (++idleSpins > 500) return
+                }
+
+                index == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> Unit
+
+                index >= 0 -> {
+                    // true releases the buffer to the Surface (TextureView).
+                    codec.releaseOutputBuffer(index, true)
+                    decodedFrames++
+                    onStats(encodedFrames, decodedFrames)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
                 }
             }
         }
     }
 
     private fun finish() {
-        val codec = codec
+        val codec = encoder
         if (codec != null && configured) {
             val index = codec.dequeueInputBuffer(100_000)
             if (index >= 0) {
@@ -347,26 +409,23 @@ internal class H264Encoder(
                     MediaCodec.BUFFER_FLAG_END_OF_STREAM,
                 )
             }
-            drain(endOfStream = true)
+            drainEncoder(endOfStream = true)
+            drainDecoder(endOfStream = true)
         }
     }
 
     private fun release() {
-        val muxer = muxer
-        this.muxer = null
-        if (muxer != null) {
-            if (muxerStarted) runCatching { muxer.stop() }
-            runCatching { muxer.release() }
-            muxerStarted = false
+        val decoder = decoder
+        this.decoder = null
+        if (decoder != null) {
+            runCatching { decoder.stop() }
+            runCatching { decoder.release() }
         }
-        val codec = codec
-        this.codec = null
-        if (codec != null) {
-            runCatching { codec.stop() }
-            runCatching { codec.release() }
-        }
-        if (byteCount == 0L) {
-            outputFile.delete()
+        val encoder = encoder
+        this.encoder = null
+        if (encoder != null) {
+            runCatching { encoder.stop() }
+            runCatching { encoder.release() }
         }
     }
 }

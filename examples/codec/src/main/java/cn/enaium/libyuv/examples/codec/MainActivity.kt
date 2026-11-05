@@ -25,12 +25,14 @@ package cn.enaium.libyuv.examples.codec
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.SurfaceTexture
 import android.os.Bundle
+import android.view.Surface
+import android.view.TextureView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,7 +42,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Surface as ComposeSurface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -52,7 +54,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -63,7 +64,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                ComposeSurface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     CodecExampleScreen()
                 }
             }
@@ -78,11 +79,40 @@ private fun CodecExampleScreen() {
     val controller = remember { CaptureController(context) }
     val status = controller.status
 
-    var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    val outputSurfaceState = remember { mutableStateOf<Surface?>(null) }
+    val outputSurface = outputSurfaceState.value
     var cameraGranted by remember { mutableStateOf(hasCameraPermission(context)) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> cameraGranted = granted }
+
+    val textureListener = remember(controller) {
+        object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(
+                surfaceTexture: SurfaceTexture,
+                width: Int,
+                height: Int,
+            ) {
+                outputSurfaceState.value?.release()
+                outputSurfaceState.value = Surface(surfaceTexture)
+            }
+
+            override fun onSurfaceTextureSizeChanged(
+                surfaceTexture: SurfaceTexture,
+                width: Int,
+                height: Int,
+            ) = Unit
+
+            override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                controller.stopBlocking()
+                outputSurfaceState.value?.release()
+                outputSurfaceState.value = null
+                return true
+            }
+
+            override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!cameraGranted) permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -94,14 +124,14 @@ private fun CodecExampleScreen() {
     Box(Modifier.fillMaxSize()) {
         AndroidView(
             factory = { viewContext ->
-                PreviewView(viewContext).apply {
-                    scaleType = PreviewView.ScaleType.FILL_CENTER
-                }.also { previewView = it }
+                TextureView(viewContext).apply {
+                    surfaceTextureListener = textureListener
+                }
             },
             modifier = Modifier.fillMaxSize(),
         )
 
-        Surface(
+        ComposeSurface(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(16.dp),
@@ -109,7 +139,7 @@ private fun CodecExampleScreen() {
             shape = MaterialTheme.shapes.medium,
         ) {
             Text(
-                text = "libyuv  •  CameraX YUV  →  I420  →  MediaCodec H.264",
+                text = "libyuv  •  CameraX YUV  →  MediaCodec encode  →  MediaCodec decode  →  TextureView",
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 style = MaterialTheme.typography.labelLarge,
             )
@@ -127,17 +157,9 @@ private fun CodecExampleScreen() {
             ) {
                 Text(status.message, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "${status.frames} frames  •  ${formatBytes(status.bytes)}",
+                    "Encoded ${status.encodedFrames}  •  Decoded ${status.decodedFrames}",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                status.outputPath?.let { path ->
-                    Text(
-                        text = path,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 when {
                     !cameraGranted -> Button(
                         onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
@@ -150,17 +172,17 @@ private fun CodecExampleScreen() {
                         onClick = controller::stop,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Stop recording")
+                        Text("Stop")
                     }
 
                     else -> Button(
                         onClick = {
-                            previewView?.let { controller.start(lifecycleOwner, it) }
+                            outputSurface?.let { controller.start(lifecycleOwner, it) }
                         },
-                        enabled = previewView != null,
+                        enabled = outputSurface != null,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Start recording")
+                        Text("Start encode/decode loopback")
                     }
                 }
             }
@@ -171,9 +193,3 @@ private fun CodecExampleScreen() {
 private fun hasCameraPermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
         PackageManager.PERMISSION_GRANTED
-
-private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1024L * 1024L -> "%.1f MiB".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.1f KiB".format(bytes / 1024.0)
-    else -> "$bytes B"
-}

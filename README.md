@@ -125,7 +125,8 @@ LibYuv.maskCpuFlags(0) // disable all optional CPU features
 
 ## Android example
 
-`examples/codec` is a Compose camera app built with CameraX and MediaCodec:
+`examples/codec` is a Compose camera app that demonstrates the full
+encode/decode loopback with CameraX and MediaCodec:
 
 1. CameraX `ImageAnalysis` produces `YUV_420_888` frames.
 2. `YuvConverter` copies the planes into I420 (planar and semi-planar chroma
@@ -135,8 +136,9 @@ LibYuv.maskCpuFlags(0) // disable all optional CPU features
    `Image` planes directly, which preserves the codec's aligned row strides.
    When no `Image` input is available, libyuv converts I420 to NV12 (or I420
    for a planar encoder).
-5. MediaCodec encodes H.264 and `MediaMuxer` writes a playable MP4 into
-   `filesDir`.
+5. The encoded H.264 samples are fed straight into a second MediaCodec
+   instance configured with the `TextureView`'s `Surface`. The decoder's
+   output is rendered to that `TextureView`; nothing is written to disk.
 
 Run it with:
 
@@ -144,7 +146,8 @@ Run it with:
 ./gradlew :examples:codec:installDebug
 ```
 
-The UI reports the output path, encoded frame count and byte count.
+The UI reports the encoded and decoded frame counts, and the
+`TextureView` shows the decoded stream.
 
 ## Building
 

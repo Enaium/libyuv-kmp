@@ -27,35 +27,33 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.Size
+import android.view.Surface
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import java.io.File
 import java.util.concurrent.Executors
 
 data class CaptureStatus(
     val running: Boolean = false,
     val message: String = "Idle",
-    val frames: Long = 0,
-    val bytes: Long = 0,
-    val outputPath: String? = null,
+    val encodedFrames: Long = 0,
+    val decodedFrames: Long = 0,
 )
 
 /**
- * Owns the CameraX Preview/ImageAnalysis pair and the H.264 encoding session.
+ * Owns the CameraX ImageAnalysis use case and the H.264 encode/decode loopback.
  *
  * Frames are converted to I420 on the CameraX analysis executor, queued without
- * blocking, rotated by libyuv when the sensor orientation requires it, and
- * encoded on a dedicated worker thread.
+ * blocking, rotated by libyuv when the sensor orientation requires it, encoded
+ * with MediaCodec, and immediately decoded by another MediaCodec instance whose
+ * output surface is the example's TextureView.
  */
 class CaptureController(context: Context) {
     private val appContext = context.applicationContext
@@ -69,11 +67,16 @@ class CaptureController(context: Context) {
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var analysis: ImageAnalysis? = null
-    private var encoder: H264Encoder? = null
+    private var loopback: H264Loopback? = null
+    private var stopThread: Thread? = null
     private var released = false
 
-    fun start(owner: LifecycleOwner, previewView: PreviewView) {
-        if (status.running || released || encoder != null) return
+    fun start(owner: LifecycleOwner, outputSurface: Surface) {
+        if (status.running || released || loopback != null) return
+        if (!outputSurface.isValid) {
+            updateStatus { it.copy(message = "Decoder surface is not ready") }
+            return
+        }
         updateStatus { it.copy(message = "Starting camera…") }
 
         val future = ProcessCameraProvider.getInstance(appContext)
@@ -82,9 +85,6 @@ class CaptureController(context: Context) {
                 val provider = future.get()
                 cameraProvider = provider
 
-                val preview = Preview.Builder().build().apply {
-                    setSurfaceProvider(previewView.surfaceProvider)
-                }
                 val imageAnalysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
@@ -100,19 +100,20 @@ class CaptureController(context: Context) {
                     )
                     .build()
 
-                val outputFile = File(appContext.filesDir, "libyuv-${System.currentTimeMillis()}.mp4")
-                val newEncoder = H264Encoder(
-                    outputFile = outputFile,
-                    onStats = { frames, bytes ->
-                        updateStatus { it.copy(frames = frames, bytes = bytes) }
+                val newLoopback = H264Loopback(
+                    outputSurface = outputSurface,
+                    onStats = { encoded, decoded ->
+                        updateStatus {
+                            it.copy(encodedFrames = encoded, decodedFrames = decoded)
+                        }
                     },
                     onError = { error -> fail(error) },
                 )
-                encoder = newEncoder
+                loopback = newLoopback
 
                 imageAnalysis.setAnalyzer(analysisExecutor) { image ->
                     try {
-                        newEncoder.offer(YuvConverter.toI420(image))
+                        newLoopback.offer(YuvConverter.toI420(image))
                     } catch (error: Throwable) {
                         fail(error)
                     } finally {
@@ -124,16 +125,14 @@ class CaptureController(context: Context) {
                 provider.bindToLifecycle(
                     owner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
                     imageAnalysis,
                 )
                 analysis = imageAnalysis
-                newEncoder.start()
+                newLoopback.start()
                 updateStatus {
                     CaptureStatus(
                         running = true,
-                        message = "Recording…",
-                        outputPath = outputFile.absolutePath,
+                        message = "Encoding and decoding…",
                     )
                 }
             } catch (error: Throwable) {
@@ -143,33 +142,66 @@ class CaptureController(context: Context) {
     }
 
     fun stop() {
-        val encoder = encoder ?: return
-        this.encoder = null
+        val loopback = loopback ?: return
+        this.loopback = null
         analysis?.clearAnalyzer()
         analysis = null
         cameraProvider?.unbindAll()
 
-        updateStatus { it.copy(running = false, message = "Finalizing…") }
-        Thread({
-            val result = encoder.stop()
-            val message = when {
-                result.error != null -> "Error: ${result.error.message}"
-                result.bytes > 0 -> "Saved ${result.frames} frames"
-                else -> "No frames were encoded"
-            }
-            updateStatus {
-                it.copy(
+        updateStatus { it.copy(running = false, message = "Stopping…") }
+        val thread = Thread({
+            val result = loopback.stop()
+            updateStatus { status ->
+                status.copy(
                     running = false,
-                    message = message,
-                    frames = result.frames,
-                    bytes = result.bytes,
-                    outputPath = if (result.bytes > 0) encoder.outputFile.absolutePath else null,
+                    message = stopMessage(result),
+                    encodedFrames = result.encodedFrames,
+                    decodedFrames = result.decodedFrames,
                 )
             }
-        }, "libyuv-encoder-finalizer").apply {
-            isDaemon = true
-            start()
+        }, "libyuv-loopback-finalizer")
+        stopThread = thread
+        thread.isDaemon = true
+        thread.start()
+    }
+
+    /**
+     * Stops the loopback and waits for the decoder to release its Surface.
+     * Called from the TextureView's surface-destroyed callback; releasing the
+     * Surface while MediaCodec still owns it would crash the decoder.
+     */
+    fun stopBlocking() {
+        val loopback = loopback
+        this.loopback = null
+        analysis?.clearAnalyzer()
+        analysis = null
+        cameraProvider?.unbindAll()
+
+        val result = loopback?.stop()
+        stopThread?.let { thread ->
+            try {
+                thread.join(12_000)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
         }
+        if (result != null) {
+            updateStatus { status ->
+                status.copy(
+                    running = false,
+                    message = stopMessage(result),
+                    encodedFrames = result.encodedFrames,
+                    decodedFrames = result.decodedFrames,
+                )
+            }
+        }
+    }
+
+    private fun stopMessage(result: EncoderResult): String = when {
+        result.error != null -> "Error: ${result.error.message}"
+        result.decodedFrames > 0 ->
+            "Stopped: encoded ${result.encodedFrames} / decoded ${result.decodedFrames}"
+        else -> "No frames were encoded"
     }
 
     fun release() {
@@ -179,43 +211,43 @@ class CaptureController(context: Context) {
         analysis = null
         cameraProvider?.unbindAll()
         analysisExecutor.shutdownNow()
-        val encoder = encoder
-        this.encoder = null
-        if (encoder != null) {
-            Thread({ encoder.stop() }, "libyuv-encoder-release").apply {
-                isDaemon = true
-                start()
-            }
+        val loopback = loopback
+        this.loopback = null
+        if (loopback != null) {
+            val thread = Thread({ loopback.stop() }, "libyuv-loopback-release")
+            stopThread = thread
+            thread.isDaemon = true
+            thread.start()
         }
     }
 
     private fun fail(error: Throwable) {
-        Log.e(TAG, "capture failed", error)
+        Log.e(TAG, "encode/decode loopback failed", error)
         updateStatus {
             it.copy(running = false, message = error.message ?: error::class.java.simpleName)
         }
-        val encoder = encoder
-        if (encoder != null) {
-            this.encoder = null
+        val loopback = loopback
+        if (loopback != null) {
+            this.loopback = null
             mainHandler.post {
                 analysis?.clearAnalyzer()
                 analysis = null
                 cameraProvider?.unbindAll()
             }
-            Thread({ encoder.stop() }, "libyuv-encoder-failure").apply {
-                isDaemon = true
-                start()
-            }
+            val thread = Thread({ loopback.stop() }, "libyuv-loopback-failure")
+            stopThread = thread
+            thread.isDaemon = true
+            thread.start()
         }
-    }
-
-    private companion object {
-        const val TAG = "LibYuvCodec"
     }
 
     private fun updateStatus(transform: (CaptureStatus) -> CaptureStatus) {
         mainHandler.post {
             status = transform(status)
         }
+    }
+
+    private companion object {
+        const val TAG = "LibYuvCodec"
     }
 }
