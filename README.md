@@ -41,9 +41,6 @@ dependencies {
 }
 ```
 
-> 1.2.0 is the current development version and is not published yet; the latest
-> Maven Central release is 1.1.0.
-
 Maven (JVM; the JNI runtime artifacts are pulled transitively):
 
 ```xml
