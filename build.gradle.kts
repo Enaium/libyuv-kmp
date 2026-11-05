@@ -99,7 +99,7 @@ val hasSigningKey = providers.gradleProperty("signing.keyId").isPresent ||
 
 allprojects {
     group = "cn.enaium.libyuv"
-    version = "1.0.0"
+    version = "1.1.0"
 
     extra["hasSigningKey"] = hasSigningKey
 

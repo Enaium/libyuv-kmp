@@ -72,8 +72,10 @@ jobs:
       - name: Verify Maven Local artifacts
         run: |
           REPO="$HOME/.m2/repository/cn/enaium/libyuv"
-          JVM_POM="$REPO/libyuv-kmp-jvm/1.0.0/libyuv-kmp-jvm-1.0.0.pom"
-          JNI_JAR="$REPO/libyuv-kmp-jni-jvm-darwin-aarch64/1.0.0/libyuv-kmp-jni-jvm-darwin-aarch64-1.0.0.jar"
+          JVM_POM=$(find "$REPO/libyuv-kmp-jvm" -name '*.pom' -print -quit 2>/dev/null)
+          JNI_JAR=$(find "$REPO/libyuv-kmp-jni-jvm-darwin-aarch64" \
+            -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' \
+            -print -quit 2>/dev/null)
           test -f "$JVM_POM" || { echo "FAIL: JVM POM missing"; exit 1; }
           grep -q "libyuv-kmp-jni-jvm-darwin-aarch64" "$JVM_POM" || { echo "FAIL: JVM POM lacks JNI runtime dependency"; exit 1; }
           test -f "$JNI_JAR" || { echo "FAIL: darwin JNI jar missing"; exit 1; }
@@ -86,7 +88,7 @@ jobs:
             libyuv-kmp-tvosarm64 libyuv-kmp-tvossimulatorarm64 \
             libyuv-kmp-watchosarm64 libyuv-kmp-watchossimulatorarm64 libyuv-kmp-watchosdevicearm64 \
             libyuv-kmp-js libyuv-kmp-wasm-js; do
-            if [ ! -d "$REPO/$artifact/1.0.0" ]; then
+            if [ ! -d "$REPO/$artifact" ]; then
               echo "FAIL: missing Maven Local artifact $artifact"
               exit 1
             fi
@@ -179,7 +181,7 @@ jobs:
       - name: Verify Maven Local artifacts
         run: |
           REPO="$HOME/.m2/repository/cn/enaium/libyuv"
-          AAR=$(find "$REPO" -path "*libyuv-kmp-android/1.0.0/*.aar" -print -quit)
+          AAR=$(find "$REPO/libyuv-kmp-android" -name '*.aar' -print -quit 2>/dev/null)
           test -n "$AAR" || { echo "FAIL: Android AAR missing"; exit 1; }
           for abi in arm64-v8a armeabi-v7a x86 x86_64; do
             unzip -l "$AAR" | grep -q "jni/$abi/libyuv_jni.so" || {
@@ -187,10 +189,12 @@ jobs:
               exit 1
             }
           done
-          JNI_JAR=$(find "$REPO" -path "*libyuv-kmp-jni-jvm-linux-x86_64/1.0.0/*.jar" -print -quit)
-          test -n "$JNI_JAR" || { echo "FAIL: linux JNI jar missing"; exit 1; }
+          JNI_JAR=$(find "$REPO/libyuv-kmp-jni-jvm-linux-x86_64" \
+            -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' \
+            -print -quit 2>/dev/null)
+          test -f "$JNI_JAR" || { echo "FAIL: linux JNI jar missing"; exit 1; }
           unzip -l "$JNI_JAR" | grep -q "libyuv_jni.so" || { echo "FAIL: .so missing from linux JNI jar"; exit 1; }
-          ANDROID_POM=$(find "$REPO" -path "*libyuv-kmp-android/1.0.0/*.pom" -print -quit)
+          ANDROID_POM=$(find "$REPO/libyuv-kmp-android" -name '*.pom' -print -quit 2>/dev/null)
           test -n "$ANDROID_POM" || { echo "FAIL: Android POM missing"; exit 1; }
           grep -q "androidx.camera" "$ANDROID_POM" || { echo "FAIL: Android POM lacks exported CameraX dependency"; exit 1; }
           test -n "$(find "$REPO" -name '*.klib' -print -quit)" || { echo "FAIL: no Linux/MinGW/AndroidNative klib published"; exit 1; }
@@ -200,7 +204,7 @@ jobs:
             libyuv-kmp-mingwx64 \
             libyuv-kmp-androidnativearm64 libyuv-kmp-androidnativearm32 \
             libyuv-kmp-androidnativex64 libyuv-kmp-androidnativex86; do
-            if [ ! -d "$REPO/$artifact/1.0.0" ]; then
+            if [ ! -d "$REPO/$artifact" ]; then
               echo "FAIL: missing Maven Local artifact $artifact"
               exit 1
             fi
@@ -248,8 +252,11 @@ jobs:
       - name: Verify Maven Local artifact
         shell: pwsh
         run: |
-          $jar = Join-Path $env:USERPROFILE ".m2\repository\cn\enaium\libyuv\libyuv-kmp-jni-jvm-windows-x86_64\1.0.0\libyuv-kmp-jni-jvm-windows-x86_64-1.0.0.jar"
-          if (!(Test-Path $jar)) { throw "Missing $jar" }
-          $entries = & jar tf $jar
-          if (-not ($entries -match "yuv_jni.dll")) { throw "yuv_jni.dll missing from $jar" }
+          $dir = Join-Path $env:USERPROFILE ".m2\repository\cn\enaium\libyuv\libyuv-kmp-jni-jvm-windows-x86_64"
+          $jar = Get-ChildItem -Path $dir -Recurse -Filter "libyuv-kmp-jni-jvm-windows-x86_64-*.jar" |
+            Where-Object { $_.Name -notmatch "-(sources|javadoc)\.jar$" } |
+            Select-Object -First 1
+          if ($null -eq $jar) { throw "Missing Windows JNI jar under $dir" }
+          $entries = & jar tf $jar.FullName
+          if (-not ($entries -match "yuv_jni.dll")) { throw "yuv_jni.dll missing from $($jar.FullName)" }
           Write-Output "OK: Maven Local JNI jar contains yuv_jni.dll"

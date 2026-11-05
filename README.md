@@ -32,11 +32,29 @@ initialization is required at runtime.
 
 ## Using the library
 
+Gradle (Kotlin Multiplatform / Android; platform variants are selected from
+Gradle metadata):
+
 ```kotlin
 dependencies {
-    implementation("cn.enaium.libyuv:libyuv-kmp:1.0.0")
+    implementation("cn.enaium.libyuv:libyuv-kmp:1.1.0")
 }
 ```
+
+Maven (JVM; the JNI runtime artifacts are pulled transitively):
+
+```xml
+<dependency>
+    <groupId>cn.enaium.libyuv</groupId>
+    <artifactId>libyuv-kmp-jvm</artifactId>
+    <version>1.1.0</version>
+</dependency>
+```
+
+For a plain Maven Android build that consumes AARs, use
+`cn.enaium.libyuv:libyuv-kmp-android:1.1.0`. The `libyuv-kmp` coordinate above is
+intended for Gradle metadata-aware consumers and resolves the correct platform
+variant automatically.
 
 The Android AAR and the JVM artifacts contain the native libraries. JVM
 consumers automatically receive the per-OS/arch JNI artifacts and
@@ -109,9 +127,6 @@ image.writeI420(fromCamera) // MediaCodec encoder input Image
 CameraX `camera-core` dependency is exported for the `ImageProxy` signature.
 The underlying bulk conversion is also exposed as
 `LibYuv.android420ToI420(..., srcPixelStrideUv = 2)`.
-
-> These helpers were added after the 1.0.0 Maven Central release; they are part
-> of the current source and will be available in the next published version.
 
 ### FourCC conversion
 
