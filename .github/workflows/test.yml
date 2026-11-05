@@ -190,6 +190,9 @@ jobs:
           JNI_JAR=$(find "$REPO" -path "*libyuv-kmp-jni-jvm-linux-x86_64/1.0.0/*.jar" -print -quit)
           test -n "$JNI_JAR" || { echo "FAIL: linux JNI jar missing"; exit 1; }
           unzip -l "$JNI_JAR" | grep -q "libyuv_jni.so" || { echo "FAIL: .so missing from linux JNI jar"; exit 1; }
+          ANDROID_POM=$(find "$REPO" -path "*libyuv-kmp-android/1.0.0/*.pom" -print -quit)
+          test -n "$ANDROID_POM" || { echo "FAIL: Android POM missing"; exit 1; }
+          grep -q "androidx.camera" "$ANDROID_POM" || { echo "FAIL: Android POM lacks exported CameraX dependency"; exit 1; }
           test -n "$(find "$REPO" -name '*.klib' -print -quit)" || { echo "FAIL: no Linux/MinGW/AndroidNative klib published"; exit 1; }
           for artifact in \
             libyuv-kmp-android \

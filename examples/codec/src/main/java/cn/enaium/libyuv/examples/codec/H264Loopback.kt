@@ -22,7 +22,6 @@
 
 package cn.enaium.libyuv.examples.codec
 
-import android.media.Image
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
@@ -31,8 +30,10 @@ import android.os.Build
 import android.util.Log
 import android.view.Surface
 import cn.enaium.libyuv.FourCC
+import cn.enaium.libyuv.I420Frame
 import cn.enaium.libyuv.LibYuv
 import cn.enaium.libyuv.Rotation
+import cn.enaium.libyuv.writeI420
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -215,7 +216,7 @@ internal class H264Loopback(
         val image = runCatching { codec.getInputImage(inputIndex) }.getOrNull()
         val queued = if (image != null) {
             try {
-                fillImage(image, frame)
+                image.writeI420(frame)
                 codec.queueInputBuffer(
                     inputIndex,
                     0,
@@ -245,33 +246,6 @@ internal class H264Loopback(
 
         encodedFrames++
         drainEncoder()
-    }
-
-    private fun fillImage(image: Image, frame: I420Frame) {
-        copyToPlane(image.planes[0], frame.y, frame.width, frame.height, frame.width)
-        val chromaWidth = (frame.width + 1) / 2
-        val chromaHeight = (frame.height + 1) / 2
-        copyToPlane(image.planes[1], frame.u, chromaWidth, chromaHeight, chromaWidth)
-        copyToPlane(image.planes[2], frame.v, chromaWidth, chromaHeight, chromaWidth)
-    }
-
-    private fun copyToPlane(
-        plane: Image.Plane,
-        source: ByteArray,
-        width: Int,
-        height: Int,
-        sourceStride: Int,
-    ) {
-        val buffer = plane.buffer
-        val rowStride = plane.rowStride
-        val pixelStride = plane.pixelStride
-        for (row in 0 until height) {
-            val sourceBase = row * sourceStride
-            val destinationBase = row * rowStride
-            for (column in 0 until width) {
-                buffer.put(destinationBase + column * pixelStride, source[sourceBase + column])
-            }
-        }
     }
 
     private fun pack(frame: I420Frame): ByteArray {

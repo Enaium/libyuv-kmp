@@ -205,6 +205,10 @@ kotlin {
             // AAR supplies libyuv_jni.so through jniLibs, so on Android the
             // loader falls back to System.loadLibrary.
             kotlin.srcDir("src/jvmMain/kotlin")
+            dependencies {
+                // ImageExtensions exposes ImageProxy in its public signatures.
+                api(libs.camera.core)
+            }
         }
 
         // Shared intermediate source sets. The default hierarchy template is

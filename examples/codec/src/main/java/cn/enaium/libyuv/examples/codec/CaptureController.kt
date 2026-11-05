@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import cn.enaium.libyuv.toI420
 import java.util.concurrent.Executors
 
 data class CaptureStatus(
@@ -113,7 +114,7 @@ class CaptureController(context: Context) {
 
                 imageAnalysis.setAnalyzer(analysisExecutor) { image ->
                     try {
-                        newLoopback.offer(YuvConverter.toI420(image))
+                        newLoopback.offer(image.toI420())
                     } catch (error: Throwable) {
                         fail(error)
                     } finally {

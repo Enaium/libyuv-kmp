@@ -91,6 +91,26 @@ LibYuv.i420Rotate(
 )
 ```
 
+### Android `ImageProxy` / `Image` helpers
+
+The Android artifact includes CameraX/MediaCodec interop extensions:
+
+```kotlin
+import cn.enaium.libyuv.I420Frame
+import cn.enaium.libyuv.toI420
+import cn.enaium.libyuv.writeI420
+
+val fromCamera: I420Frame = imageProxy.toI420()
+val fromMedia: I420Frame = image.toI420()
+image.writeI420(fromCamera) // MediaCodec encoder input Image
+```
+
+`I420Frame` and these extensions live in `libyuv-kmp`'s Android source set; the
+CameraX `camera-core` dependency is exported for the `ImageProxy` signature.
+
+> These helpers were added after the 1.0.0 Maven Central release; they are part
+> of the current source and will be available in the next published version.
+
 ### FourCC conversion
 
 ```kotlin
@@ -129,13 +149,13 @@ LibYuv.maskCpuFlags(0) // disable all optional CPU features
 encode/decode loopback with CameraX and MediaCodec:
 
 1. CameraX `ImageAnalysis` produces `YUV_420_888` frames.
-2. `YuvConverter` copies the planes into I420 (planar and semi-planar chroma
-   layouts are both handled).
+2. The library's `ImageProxy.toI420()` extension copies the planes into I420
+   (planar and semi-planar chroma layouts are both handled).
 3. libyuv rotates the frame according to `ImageInfo.rotationDegrees`.
 4. The encoder prefers a flexible AVC color format and fills the codec's
-   `Image` planes directly, which preserves the codec's aligned row strides.
-   When no `Image` input is available, libyuv converts I420 to NV12 (or I420
-   for a planar encoder).
+   `Image` planes through the library's `Image.writeI420()`, which preserves
+   the codec's aligned row strides. When no `Image` input is available, libyuv converts
+   I420 to NV12 (or I420 for a planar encoder).
 5. The encoded H.264 samples are fed straight into a second MediaCodec
    instance configured with the `TextureView`'s `Surface`. The decoder's
    output is rendered to that `TextureView`; nothing is written to disk.
