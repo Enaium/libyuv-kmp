@@ -340,11 +340,11 @@ private class AndroidVideoPipeline : VideoPipeline {
         val codec = encoder ?: return
         val index = AMediaCodec_dequeueInputBuffer(codec, 0)
         if (index < 0) return
-        val inputIndex = index.toULong()
+        val inputIndex = index.toLong()
 
         memScoped {
             val capacity = alloc<size_tVar>()
-            val buffer = AMediaCodec_getInputBuffer(codec, inputIndex, capacity.ptr)
+            val buffer = AMediaCodec_getInputBuffer(codec, inputIndex.convert(), capacity.ptr)
                 ?: throw IllegalStateException("AMediaCodec_getInputBuffer returned null")
             val required = encodedWidth * encodedHeight * 3 / 2
             if (capacity.value.toLong() < required) {
@@ -364,9 +364,9 @@ private class AndroidVideoPipeline : VideoPipeline {
 
             val result = AMediaCodec_queueInputBuffer(
                 codec,
-                inputIndex,
+                inputIndex.convert(),
                 0,
-                required.toULong(),
+                required.convert(),
                 ptsUs.toULong(),
                 0u,
             )
@@ -382,12 +382,12 @@ private class AndroidVideoPipeline : VideoPipeline {
             val bufferSize = alloc<size_tVar>()
             while (true) {
                 val index = AMediaCodec_dequeueOutputBuffer(codec, info.ptr, 0)
-                if (index == AMEDIACODEC_INFO_TRY_AGAIN_LATER.toLong()) break
-                if (index == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED.toLong()) continue
+                if (index.toLong() == AMEDIACODEC_INFO_TRY_AGAIN_LATER.toLong()) break
+                if (index.toLong() == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED.toLong()) continue
                 if (index < 0) break
                 val size = info.size
                 if (size > 0) {
-                    val buffer = AMediaCodec_getOutputBuffer(codec, index.toULong(), bufferSize.ptr)
+                    val buffer = AMediaCodec_getOutputBuffer(codec, index.convert(), bufferSize.ptr)
                     if (buffer != null) {
                         packets.addLast(
                             EncodedPacket(
@@ -398,7 +398,7 @@ private class AndroidVideoPipeline : VideoPipeline {
                         )
                     }
                 }
-                AMediaCodec_releaseOutputBuffer(codec, index.toULong(), false)
+                AMediaCodec_releaseOutputBuffer(codec, index.convert(), false)
                 if ((info.flags.toInt() and AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0) break
             }
         }
@@ -413,7 +413,7 @@ private class AndroidVideoPipeline : VideoPipeline {
             val packet = packets.removeFirst()
             memScoped {
                 val capacity = alloc<size_tVar>()
-                val buffer = AMediaCodec_getInputBuffer(codec, index.toULong(), capacity.ptr)
+                val buffer = AMediaCodec_getInputBuffer(codec, index.convert(), capacity.ptr)
                     ?: throw IllegalStateException("decoder input buffer is null")
                 if (packet.data.size > capacity.value.toLong()) {
                     error = "decoder input ${capacity.value} < packet ${packet.data.size}"
@@ -422,9 +422,9 @@ private class AndroidVideoPipeline : VideoPipeline {
                 buffer.write(packet.data, packet.data.size)
                 val result = AMediaCodec_queueInputBuffer(
                     codec,
-                    index.toULong(),
+                    index.convert(),
                     0,
-                    packet.data.size.toULong(),
+                    packet.data.size.convert(),
                     packet.ptsUs.toULong(),
                     packet.flags.toUInt(),
                 )
@@ -440,8 +440,8 @@ private class AndroidVideoPipeline : VideoPipeline {
             val bufferSize = alloc<size_tVar>()
             while (true) {
                 val index = AMediaCodec_dequeueOutputBuffer(codec, info.ptr, 0)
-                if (index == AMEDIACODEC_INFO_TRY_AGAIN_LATER.toLong()) break
-                if (index == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED.toLong()) {
+                if (index.toLong() == AMEDIACODEC_INFO_TRY_AGAIN_LATER.toLong()) break
+                if (index.toLong() == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED.toLong()) {
                     readDecoderFormat(codec)
                     continue
                 }
@@ -449,13 +449,13 @@ private class AndroidVideoPipeline : VideoPipeline {
                 if (info.size > 0 &&
                     (info.flags.toInt() and AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG) == 0
                 ) {
-                    val buffer = AMediaCodec_getOutputBuffer(codec, index.toULong(), bufferSize.ptr)
+                    val buffer = AMediaCodec_getOutputBuffer(codec, index.convert(), bufferSize.ptr)
                     if (buffer != null) {
                         latest = decodeOutput(buffer.read(info.offset, info.size))
                         decodedFrames++
                     }
                 }
-                AMediaCodec_releaseOutputBuffer(codec, index.toULong(), false)
+                AMediaCodec_releaseOutputBuffer(codec, index.convert(), false)
                 if ((info.flags.toInt() and AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0) break
             }
         }
