@@ -198,25 +198,25 @@ The UI reports the encoded and decoded frame counts, and the
 
 `examples/android-native` is a Kotlin/Native example built with
 [sdl-kmp](https://github.com/Enaium/sdl-kmp) and
-[imgui-kmp](https://github.com/Enaium/imgui-kmp). It runs the same
-capture -> convert -> encode -> decode -> present loop as the JVM example, but
-the whole pipeline is native:
+[imgui-kmp](https://github.com/Enaium/imgui-kmp). It runs the capture ->
+convert -> encode -> decode -> present loop entirely on the native side:
 
-1. SDL3 opens the back camera at 640x480 NV12 (the full camera spec includes
-   its colorspace, so the native binding can select the format directly).
-2. libyuv converts the camera frame to I420; the user can rotate it in 90°
-   steps before encoding.
-3. The NDK `AMediaCodec` API encodes H.264 from the I420 frame in NV12 layout
-   and feeds the encoded access units to a second `AMediaCodec` decoder.
-4. The decoder's YUV output is converted to RGBA with libyuv and uploaded to an
-   SDL texture; ImGui draws the texture with the frame counters, camera
-   description and rotation in an overlay.
+1. The Android camera2 NDK and an `AImageReader` deliver all three
+   `YUV_420_888` planes at 640x480. SDL's camera backend labels this format
+   NV12 and keeps only the first chroma plane, which loses the V plane on
+   planar devices; Camera2 + `AImageReader` avoids that magenta cast.
+2. libyuv's `Android420ToI420` handles planar and interleaved chroma layouts.
+3. The NDK `AMediaCodec` API encodes H.264 from the I420 frame and feeds the
+   encoded access units to a second `AMediaCodec` decoder.
+4. The decoder's YUV output is converted to RGBA with a BT.709 matrix (the
+   camera colorspace), uploaded to an SDL texture, and drawn with ImGui. The
+   UI font and widget metrics scale with the window's display density.
 
 The shared library is packaged as `libmain.so` and loaded by SDLActivity; the
 wrapper APK supports `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`. The same UI
 is also built as a macOS executable for development, where the camera/MediaCodec
-half is replaced by a synthetic preview (Android's MediaCodec is not available
-on desktop).
+half is replaced by a synthetic preview (Android's Camera2/MediaCodec are not
+available on desktop).
 
 Build and install the Android native APK (select the ABIs with `-PandroidAbis`;
 the arm64 build is enough for a physical device):

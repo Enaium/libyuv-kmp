@@ -20,6 +20,8 @@
  * SOFTWARE.
  */
 
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package cn.enaium.libyuv.examples.androidnative
 
 import cn.enaium.imgui.ImFontConfig
@@ -28,6 +30,7 @@ import cn.enaium.imgui.ImTextureID
 import cn.enaium.imgui.backends.sdl.ImGuiSdlBackend
 import cn.enaium.imgui.backends.sdl.ImGuiSdlRendererBackend
 import cn.enaium.imgui.backends.sdl.toImTextureID
+import cn.enaium.sdl.nativePtr
 import cn.enaium.sdl.SDL
 import cn.enaium.sdl.SDLBlendMode
 import cn.enaium.sdl.SDLColor
@@ -40,6 +43,7 @@ import cn.enaium.sdl.SDLTextureAccess
 import cn.enaium.sdl.SDLWindow
 import cn.enaium.sdl.SDLWindowEventType
 import cn.enaium.sdl.SDLWindowFlags
+import sdl3.SDL_GetWindowDisplayScale
 
 /**
  * Boots an SDL3 window with the published imgui-kmp SDL backends and runs the
@@ -82,8 +86,17 @@ internal object ImGuiSdlHost {
                     // Bake the font atlas at the display's pixel density so the
                     // text stays crisp on Retina and high-density phone screens.
                     val fonts = ImGui.getIO().fonts
-                    val density = maxOf(platform.framebufferScale.x, platform.framebufferScale.y, 1f)
-                    fonts.addFontDefault(ImFontConfig(sizePixels = 13f * density, rasterizerDensity = density))
+                    // framebufferScale is 1 when SDL already reports window
+                    // coordinates in physical pixels (Android). The window's
+                    // display scale is the density the UI has to grow by.
+                    val displayScale = window.nativePtr?.let { SDL_GetWindowDisplayScale(it) } ?: 0f
+                    val density = maxOf(
+                        displayScale,
+                        platform.framebufferScale.x,
+                        platform.framebufferScale.y,
+                        1f,
+                    ).coerceAtMost(3f)
+                    fonts.addFontDefault(ImFontConfig(sizePixels = 13f * density, rasterizerDensity = 1f))
                     check(fonts.build()) { "font atlas build failed" }
                     val texData = fonts.getTexDataAsRGBA32()
                     fonts.setTexID(frameBackend.uploadFontTexture(texData.pixels, texData.width, texData.height))

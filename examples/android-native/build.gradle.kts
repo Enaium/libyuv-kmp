@@ -74,6 +74,10 @@ kotlin {
     // Android native: SDLActivity (from the SDL3 Android archive the wrapper
     // depends on) loads libmain.so and calls its exported SDL_main.
     androidNativeArm64 {
+        compilations.getByName("main").cinterops.create("androidCamera2") {
+            defFile(file("src/nativeInterop/cinterop/android_camera2.def"))
+            includeDirs(file("src/nativeInterop/cinterop"))
+        }
         binaries.sharedLib("main") {
             linkerOpts("-L" + androidStubLinkDir("arm64-v8a"))
             androidNdkLibDir("arm64-v8a")?.let { linkerOpts("$it/libc++_shared.so") }
@@ -82,6 +86,10 @@ kotlin {
     }
 
     androidNativeArm32 {
+        compilations.getByName("main").cinterops.create("androidCamera2") {
+            defFile(file("src/nativeInterop/cinterop/android_camera2.def"))
+            includeDirs(file("src/nativeInterop/cinterop"))
+        }
         binaries.sharedLib("main") {
             linkerOpts("-L" + androidStubLinkDir("armeabi-v7a"))
             androidNdkLibDir("armeabi-v7a")?.let { linkerOpts("$it/libc++_shared.so") }
@@ -90,6 +98,10 @@ kotlin {
     }
 
     androidNativeX64 {
+        compilations.getByName("main").cinterops.create("androidCamera2") {
+            defFile(file("src/nativeInterop/cinterop/android_camera2.def"))
+            includeDirs(file("src/nativeInterop/cinterop"))
+        }
         binaries.sharedLib("main") {
             linkerOpts("-L" + androidStubLinkDir("x86_64"))
             androidNdkLibDir("x86_64")?.let { linkerOpts("$it/libc++_shared.so") }
@@ -98,6 +110,10 @@ kotlin {
     }
 
     androidNativeX86 {
+        compilations.getByName("main").cinterops.create("androidCamera2") {
+            defFile(file("src/nativeInterop/cinterop/android_camera2.def"))
+            includeDirs(file("src/nativeInterop/cinterop"))
+        }
         binaries.sharedLib("main") {
             linkerOpts("-L" + androidStubLinkDir("x86"))
             androidNdkLibDir("x86")?.let { linkerOpts("$it/libc++_shared.so") }

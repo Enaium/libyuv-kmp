@@ -490,6 +490,48 @@ object LibYuv {
         )
     }
 
+    /**
+     * Converts the three planes of an Android `YUV_420_888` image to I420.
+     *
+     * Android exposes the chroma planes either planar ([srcPixelStrideUv] = 1)
+     * or interleaved ([srcPixelStrideUv] = 2); [srcU] and [srcV] may point at the
+     * same allocation with an offset between them. libyuv's Android420ToI420
+     * handles both layouts.
+     */
+    fun android420ToI420(
+        srcY: ByteArray, srcU: ByteArray, srcV: ByteArray,
+        dstY: ByteArray, dstU: ByteArray, dstV: ByteArray,
+        width: Int, height: Int,
+        srcStrideY: Int = width,
+        srcStrideU: Int = (width + 1) / 2,
+        srcStrideV: Int = srcStrideU,
+        srcPixelStrideUv: Int = 1,
+        dstStrideY: Int = width,
+        dstStrideU: Int = (width + 1) / 2,
+        dstStrideV: Int = dstStrideU,
+    ) {
+        requirePositive("width", width)
+        requirePositive("height", height)
+        require(srcPixelStrideUv == 1 || srcPixelStrideUv == 2) {
+            "srcPixelStrideUv must be 1 or 2, was $srcPixelStrideUv"
+        }
+        val chromaWidth = (width + 1) / 2
+        val chromaHeight = (height + 1) / 2
+        requirePacked("src Y", srcY, height, srcStrideY, width)
+        requirePacked("src U", srcU, chromaHeight, srcStrideU, chromaWidth * srcPixelStrideUv)
+        requirePacked("src V", srcV, chromaHeight, srcStrideV, chromaWidth * srcPixelStrideUv)
+        requireI420("dst", dstY, dstU, dstV, width, height, dstStrideY, dstStrideU, dstStrideV)
+        invoke(
+            Op.Android420ToI420,
+            intArrayOf(
+                width, height,
+                srcStrideY, srcStrideU, srcStrideV, srcPixelStrideUv,
+                dstStrideY, dstStrideU, dstStrideV,
+            ),
+            arrayOf(srcY, srcU, srcV, dstY, dstU, dstV),
+        )
+    }
+
     fun nv12ToArgb(
         srcY: ByteArray, srcUv: ByteArray, dstArgb: ByteArray,
         width: Int, height: Int,
