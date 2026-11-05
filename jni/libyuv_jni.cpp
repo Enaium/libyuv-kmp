@@ -22,6 +22,8 @@
 
 #include <jni.h>
 
+#include <cstdint>
+
 #include <vector>
 
 #include "libyuv_kmp.h"
@@ -122,3 +124,69 @@ Java_cn_enaium_libyuv_JniLibYuv_nativeCall(
 
   return result;
 }
+// ============================================================================
+// Direct ByteBuffer bridge
+//
+// CameraX ImageProxy and MediaCodec Image planes are direct ByteBuffers. Passing
+// their addresses straight to libyuv avoids copying a frame into Java arrays.
+// ============================================================================
+extern "C" JNIEXPORT jint JNICALL
+Java_cn_enaium_libyuv_JniLibYuv_nativeCallDirect(
+    JNIEnv* env,
+    jclass clazz,
+    jint op,
+    jobjectArray buffers,
+    jintArray args) {
+  if (buffers == nullptr) {
+    return -2;
+  }
+  const jsize count = env->GetArrayLength(buffers);
+  if (count < 0 || count > LKY_REGIONS_MAX) {
+    return -2;
+  }
+
+  std::vector<uint8_t*> pointers(count, nullptr);
+  std::vector<int32_t> lengths(count, 0);
+  bool ok = true;
+  for (jsize i = 0; i < count; ++i) {
+    jobject buffer = env->GetObjectArrayElement(buffers, i);
+    if (buffer == nullptr) {
+      ok = false;
+      break;
+    }
+    void* address = env->GetDirectBufferAddress(buffer);
+    const jlong capacity = env->GetDirectBufferCapacity(buffer);
+    env->DeleteLocalRef(buffer);
+    if (address == nullptr || capacity < 0 || capacity > INT32_MAX) {
+      ok = false;
+      break;
+    }
+    pointers[i] = static_cast<uint8_t*>(address);
+    lengths[i] = static_cast<int32_t>(capacity);
+  }
+
+  jint* args_data = nullptr;
+  if (ok && args != nullptr) {
+    const jsize args_count = env->GetArrayLength(args);
+    if (args_count < 0 || args_count > LKY_ARGS_MAX) {
+      ok = false;
+    } else if (args_count > 0) {
+      args_data = env->GetIntArrayElements(args, nullptr);
+      if (args_data == nullptr) {
+        ok = false;
+      }
+    }
+  }
+
+  jint result = -2;
+  if (ok) {
+    result = static_cast<jint>(lky_call(
+        static_cast<int>(op), pointers.data(), lengths.data(),
+        reinterpret_cast<const int32_t*>(args_data), static_cast<int>(count)));
+  }
+  if (args_data != nullptr) {
+    env->ReleaseIntArrayElements(args, args_data, JNI_ABORT);
+  }
+  return result;
+}
+

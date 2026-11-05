@@ -136,43 +136,6 @@ class LibYuvTest {
     }
 
     @Test
-    fun android420ToI420HandlesPlanarAndInterleavedChroma() {
-        val width = 2
-        val height = 2
-        val srcY = bytes(10, 20, 30, 40)
-
-        val planarY = ByteArray(4)
-        val planarU = ByteArray(1)
-        val planarV = ByteArray(1)
-        LibYuv.android420ToI420(
-            srcY, bytes(100), bytes(200),
-            planarY, planarU, planarV,
-            width, height,
-            srcPixelStrideUv = 1,
-        )
-        assertContentEquals(srcY, planarY)
-        assertContentEquals(bytes(100), planarU)
-        assertContentEquals(bytes(200), planarV)
-
-        val interleavedY = ByteArray(4)
-        val interleavedU = ByteArray(1)
-        val interleavedV = ByteArray(1)
-        LibYuv.android420ToI420(
-            srcY,
-            bytes(100, 200),
-            bytes(200, 100),
-            interleavedY, interleavedU, interleavedV,
-            width, height,
-            srcStrideU = 2,
-            srcStrideV = 2,
-            srcPixelStrideUv = 2,
-        )
-        assertContentEquals(srcY, interleavedY)
-        assertContentEquals(bytes(100), interleavedU)
-        assertContentEquals(bytes(200), interleavedV)
-    }
-
-    @Test
     fun convertFromI420UsesFourCcStride() {
         val width = 2
         val height = 2

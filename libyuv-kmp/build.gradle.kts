@@ -211,6 +211,12 @@ kotlin {
             }
         }
 
+        getByName("androidHostTest") {
+            dependencies {
+                implementation(libs.kotlin.test)
+            }
+        }
+
         // Shared intermediate source sets. The default hierarchy template is
         // disabled so every edge below is explicit and deterministic.
         val commonMain = getByName("commonMain")

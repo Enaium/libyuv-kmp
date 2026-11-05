@@ -37,9 +37,12 @@ Gradle metadata):
 
 ```kotlin
 dependencies {
-    implementation("cn.enaium.libyuv:libyuv-kmp:1.1.0")
+    implementation("cn.enaium.libyuv:libyuv-kmp:1.2.0")
 }
 ```
+
+> 1.2.0 is the current development version and is not published yet; the latest
+> Maven Central release is 1.1.0.
 
 Maven (JVM; the JNI runtime artifacts are pulled transitively):
 
@@ -47,12 +50,12 @@ Maven (JVM; the JNI runtime artifacts are pulled transitively):
 <dependency>
     <groupId>cn.enaium.libyuv</groupId>
     <artifactId>libyuv-kmp-jvm</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
 </dependency>
 ```
 
 For a plain Maven Android build that consumes AARs, use
-`cn.enaium.libyuv:libyuv-kmp-android:1.1.0`. The `libyuv-kmp` coordinate above is
+`cn.enaium.libyuv:libyuv-kmp-android:1.2.0`. The `libyuv-kmp` coordinate above is
 intended for Gradle metadata-aware consumers and resolves the correct platform
 variant automatically.
 
@@ -125,8 +128,11 @@ image.writeI420(fromCamera) // MediaCodec encoder input Image
 
 `I420Frame` and these extensions live in `libyuv-kmp`'s Android source set; the
 CameraX `camera-core` dependency is exported for the `ImageProxy` signature.
-The underlying bulk conversion is also exposed as
-`LibYuv.android420ToI420(..., srcPixelStrideUv = 2)`.
+`I420Frame` stores direct `ByteBuffer` planes. Camera/MediaCodec YUV planes are
+passed to libyuv through JNI direct-buffer addresses, so the conversion itself
+does not copy the source planes. `I420Frame.rotate()` and
+`I420Frame.toPackedBuffer()` are available for rotation and the ByteBuffer
+encoder fallback.
 
 ### FourCC conversion
 

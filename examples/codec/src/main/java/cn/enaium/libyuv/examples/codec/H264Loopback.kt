@@ -31,7 +31,6 @@ import android.util.Log
 import android.view.Surface
 import cn.enaium.libyuv.FourCC
 import cn.enaium.libyuv.I420Frame
-import cn.enaium.libyuv.LibYuv
 import cn.enaium.libyuv.Rotation
 import cn.enaium.libyuv.writeI420
 import java.util.concurrent.ArrayBlockingQueue
@@ -130,21 +129,7 @@ internal class H264Loopback(
             270 -> Rotation.CLOCKWISE_270
             else -> return frame
         }
-        val swap = frame.rotationDegrees == 90 || frame.rotationDegrees == 270
-        val width = if (swap) frame.height else frame.width
-        val height = if (swap) frame.width else frame.height
-        val y = ByteArray(width * height)
-        val chromaWidth = (width + 1) / 2
-        val chromaHeight = (height + 1) / 2
-        val u = ByteArray(chromaWidth * chromaHeight)
-        val v = ByteArray(chromaWidth * chromaHeight)
-        LibYuv.i420Rotate(
-            frame.y, frame.u, frame.v,
-            y, u, v,
-            frame.width, frame.height,
-            rotation,
-        )
-        return I420Frame(width, height, y, u, v, 0, frame.presentationTimeUs)
+        return frame.rotate(rotation)
     }
 
     private fun configureEncoder(frame: I420Frame) {
@@ -235,36 +220,26 @@ internal class H264Loopback(
 
         if (!queued) {
             val input = codec.getInputBuffer(inputIndex) ?: return
-            val packed = pack(frame)
-            if (packed.size > input.capacity()) {
-                error("encoder input buffer (${input.capacity()} bytes) is smaller than a frame (${packed.size} bytes)")
+            val packed = frame.toPackedBuffer(
+                if (colorFormat == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar) {
+                    FourCC.I420
+                } else {
+                    FourCC.NV12
+                },
+            )
+            if (packed.capacity() > input.capacity()) {
+                error(
+                    "encoder input buffer (${input.capacity()} bytes) is smaller than a frame " +
+                        "(${packed.capacity()} bytes)",
+                )
             }
             input.clear()
             input.put(packed)
-            codec.queueInputBuffer(inputIndex, 0, packed.size, pts, 0)
+            codec.queueInputBuffer(inputIndex, 0, packed.capacity(), pts, 0)
         }
 
         encodedFrames++
         drainEncoder()
-    }
-
-    private fun pack(frame: I420Frame): ByteArray {
-        val packed = ByteArray(frame.width * frame.height * 3 / 2)
-        val fourCC = if (colorFormat == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar) {
-            FourCC.I420
-        } else {
-            // Fallback only: the flexible path normally writes the codec's
-            // Image planes directly. If no Image is available, semi-planar
-            // and flexible encoders receive NV12.
-            FourCC.NV12
-        }
-        LibYuv.convertFromI420(
-            frame.y, frame.u, frame.v,
-            packed,
-            frame.width, frame.height,
-            fourCC,
-        )
-        return packed
     }
 
     private fun drainEncoder(endOfStream: Boolean = false) {

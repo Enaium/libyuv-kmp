@@ -22,6 +22,8 @@
 
 package cn.enaium.libyuv
 
+import java.nio.ByteBuffer
+
 // =========================================================================
 // JNI bridge: declarations are shared by the JVM and Android targets.
 // =========================================================================
@@ -34,6 +36,8 @@ internal object JniLibYuv {
     external fun nativeVersion(): Int
 
     external fun nativeCall(op: Int, regions: Array<ByteArray>, args: IntArray): Int
+
+    external fun nativeCallDirect(op: Int, regions: Array<ByteBuffer>, args: IntArray): Int
 }
 
 actual fun libyuvVersion(): Int = JniLibYuv.nativeVersion()
