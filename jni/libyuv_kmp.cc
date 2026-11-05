@@ -136,6 +136,13 @@ int Dispatch(int op,
                                 a[4], Dst(r, 3), a[5], Dst(r, 4), a[6],
                                 a[0], a[1]);
 
+    /* Android YUV_420_888 (planar or interleaved chroma) -> I420.
+     * args: w,h,srcY,srcU,srcV,pixelStrideUV,dstY,dstU,dstV. */
+    case LKY_OP_ANDROID420_TO_I420:
+      return libyuv::Android420ToI420(
+          Src(r, 0), a[2], Src(r, 1), a[3], Src(r, 2), a[4], a[5], Dst(r, 3),
+          a[6], Dst(r, 4), a[7], Dst(r, 5), a[8], a[0], a[1]);
+
     /* NV12/NV21 -> packed (args: w,h,srcY,srcUV,dstStride). */
     case LKY_OP_NV12_TO_ARGB:
       return libyuv::NV12ToARGB(Src(r, 0), a[2], Src(r, 1), a[3], Dst(r, 2),

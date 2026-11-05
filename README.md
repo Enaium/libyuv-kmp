@@ -107,6 +107,8 @@ image.writeI420(fromCamera) // MediaCodec encoder input Image
 
 `I420Frame` and these extensions live in `libyuv-kmp`'s Android source set; the
 CameraX `camera-core` dependency is exported for the `ImageProxy` signature.
+The underlying bulk conversion is also exposed as
+`LibYuv.android420ToI420(..., srcPixelStrideUv = 2)`.
 
 > These helpers were added after the 1.0.0 Maven Central release; they are part
 > of the current source and will be available in the next published version.

@@ -490,6 +490,47 @@ object LibYuv {
         )
     }
 
+    /**
+     * Converts Android `YUV_420_888` planes to I420.
+     *
+     * [srcPixelStrideUv] is the chroma pixel stride: `1` for planar U/V planes
+     * and `2` for interleaved (NV12/NV21) chroma. The U and V arrays must each
+     * start at their first sample; libyuv handles both interleaved orders.
+     */
+    fun android420ToI420(
+        srcY: ByteArray, srcU: ByteArray, srcV: ByteArray,
+        dstY: ByteArray, dstU: ByteArray, dstV: ByteArray,
+        width: Int, height: Int,
+        srcStrideY: Int = width,
+        srcStrideU: Int = (width + 1) / 2,
+        srcStrideV: Int = srcStrideU,
+        srcPixelStrideUv: Int = 1,
+        dstStrideY: Int = width,
+        dstStrideU: Int = (width + 1) / 2,
+        dstStrideV: Int = dstStrideU,
+    ) {
+        requirePositive("width", width)
+        requirePositive("height", height)
+        require(srcPixelStrideUv == 1 || srcPixelStrideUv == 2) {
+            "srcPixelStrideUv must be 1 or 2, was $srcPixelStrideUv"
+        }
+        val chromaWidth = (width + 1) / 2
+        val chromaHeight = (height + 1) / 2
+        requirePacked("src Y", srcY, height, srcStrideY, width)
+        requirePacked("src U", srcU, chromaHeight, srcStrideU, chromaWidth * srcPixelStrideUv)
+        requirePacked("src V", srcV, chromaHeight, srcStrideV, chromaWidth * srcPixelStrideUv)
+        requireI420("dst", dstY, dstU, dstV, width, height, dstStrideY, dstStrideU, dstStrideV)
+        invoke(
+            Op.Android420ToI420,
+            intArrayOf(
+                width, height,
+                srcStrideY, srcStrideU, srcStrideV, srcPixelStrideUv,
+                dstStrideY, dstStrideU, dstStrideV,
+            ),
+            arrayOf(srcY, srcU, srcV, dstY, dstU, dstV),
+        )
+    }
+
     fun nv12ToArgb(
         srcY: ByteArray, srcUv: ByteArray, dstArgb: ByteArray,
         width: Int, height: Int,
@@ -1260,6 +1301,7 @@ internal enum class Op(val code: Int) {
     MaskCpuFlags(54),
     InitCpuFlags(55),
     TestCpuFlag(56),
+    Android420ToI420(57),
 }
 
 private fun invoke(op: Op, args: IntArray, regions: Array<ByteArray>) {

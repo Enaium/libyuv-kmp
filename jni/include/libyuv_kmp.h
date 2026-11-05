@@ -113,6 +113,8 @@ enum lky_op {
   LKY_OP_MASK_CPU_FLAGS = 54,
   LKY_OP_INIT_CPU_FLAGS = 55,
   LKY_OP_TEST_CPU_FLAG = 56,
+
+  LKY_OP_ANDROID420_TO_I420 = 57,
 };
 
 /* libyuv version (LIBYUV_VERSION). */
