@@ -378,11 +378,18 @@ val generateWebWasmData = tasks.register<DefaultTask>("generateWebWasmData") {
 kotlin.sourceSets.getByName("webMain").kotlin.srcDir(generatedWebDir)
 
 tasks.matching {
-    (it.name.startsWith("compileKotlinJs") ||
+    // Every task that reads webMain (compilation, source jars, publication
+    // sources) must see the generated wasm data file.
+    it.name.startsWith("compileKotlinJs") ||
         it.name.startsWith("compileKotlinWasmJs") ||
         it.name.startsWith("compileTestKotlinJs") ||
-        it.name.startsWith("compileTestKotlinWasmJs")) &&
-        !it.name.contains("Metadata")
+        it.name.startsWith("compileTestKotlinWasmJs") ||
+        it.name == "jsSourcesJar" ||
+        it.name == "wasmJsSourcesJar" ||
+        it.name.contains("WebMain") ||
+        it.name == "kotlinMultiplatformSourcesJar" ||
+        it.name == "sourcesJar" ||
+        it.name == "metadataSourcesJar"
 }.configureEach {
     dependsOn(generateWebWasmData)
 }
@@ -619,9 +626,11 @@ if (hostJniProjectName != null) {
 }
 
 // ==================== Publishing ====================
+val hasSigningKey = rootProject.extra["hasSigningKey"] as Boolean
+
 mavenPublishing {
     publishToMavenCentral(automaticRelease = true)
-    signAllPublications()
+    if (hasSigningKey) signAllPublications()
 
     coordinates(
         groupId = group.toString(),

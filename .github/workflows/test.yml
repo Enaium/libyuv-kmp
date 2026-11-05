@@ -2,9 +2,6 @@ name: Test
 
 "on":
   workflow_dispatch:
-  push:
-    branches: [ main ]
-  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -56,6 +53,45 @@ jobs:
           :libyuv-kmp:compileKotlinWatchosArm64
           :libyuv-kmp:compileKotlinWatchosSimulatorArm64
           :libyuv-kmp:compileKotlinWatchosDeviceArm64
+
+      - name: Publish to Maven Local
+        run: >
+          ./gradlew --no-daemon --stacktrace
+          :libyuv-kmp:publishToMavenLocal
+          -x :libyuv-kmp:publishAndroidPublicationToMavenLocal
+          -x :libyuv-kmp:publishLinuxX64PublicationToMavenLocal
+          -x :libyuv-kmp:publishLinuxArm64PublicationToMavenLocal
+          -x :libyuv-kmp:publishMingwX64PublicationToMavenLocal
+          -x :libyuv-kmp:publishAndroidNativeArm64PublicationToMavenLocal
+          -x :libyuv-kmp:publishAndroidNativeArm32PublicationToMavenLocal
+          -x :libyuv-kmp:publishAndroidNativeX64PublicationToMavenLocal
+          -x :libyuv-kmp:publishAndroidNativeX86PublicationToMavenLocal
+          :jni-jvm-darwin-aarch64:publishToMavenLocal
+          :jni-jvm-darwin-x86_64:publishToMavenLocal
+
+      - name: Verify Maven Local artifacts
+        run: |
+          REPO="$HOME/.m2/repository/cn/enaium/libyuv"
+          JVM_POM="$REPO/libyuv-kmp-jvm/1.0.0/libyuv-kmp-jvm-1.0.0.pom"
+          JNI_JAR="$REPO/libyuv-kmp-jni-jvm-darwin-aarch64/1.0.0/libyuv-kmp-jni-jvm-darwin-aarch64-1.0.0.jar"
+          test -f "$JVM_POM" || { echo "FAIL: JVM POM missing"; exit 1; }
+          grep -q "libyuv-kmp-jni-jvm-darwin-aarch64" "$JVM_POM" || { echo "FAIL: JVM POM lacks JNI runtime dependency"; exit 1; }
+          test -f "$JNI_JAR" || { echo "FAIL: darwin JNI jar missing"; exit 1; }
+          unzip -l "$JNI_JAR" | grep -q "libyuv_jni.dylib" || { echo "FAIL: dylib missing from JNI jar"; exit 1; }
+          test -n "$(find "$REPO" -name '*.klib' -print -quit)" || { echo "FAIL: no Apple/web klib published"; exit 1; }
+          for artifact in \
+            libyuv-kmp-jvm \
+            libyuv-kmp-macosarm64 libyuv-kmp-macosx64 \
+            libyuv-kmp-iosarm64 libyuv-kmp-iosx64 libyuv-kmp-iossimulatorarm64 \
+            libyuv-kmp-tvosarm64 libyuv-kmp-tvossimulatorarm64 \
+            libyuv-kmp-watchosarm64 libyuv-kmp-watchossimulatorarm64 libyuv-kmp-watchosdevicearm64 \
+            libyuv-kmp-js libyuv-kmp-wasm-js; do
+            if [ ! -d "$REPO/$artifact/1.0.0" ]; then
+              echo "FAIL: missing Maven Local artifact $artifact"
+              exit 1
+            fi
+          done
+          echo "OK: Maven Local artifacts present; klibs=$(find "$REPO" -name '*.klib' | wc -l)"
 
   test-linux:
     name: Test Linux (JVM + Linux + cross + Android)
@@ -126,6 +162,48 @@ jobs:
             echo "OK: $(du -h "$archive" | cut -f1)"
           done
 
+      - name: Publish to Maven Local
+        run: >
+          ./gradlew --no-daemon --stacktrace
+          :libyuv-kmp:publishAndroidPublicationToMavenLocal
+          :libyuv-kmp:publishLinuxX64PublicationToMavenLocal
+          :libyuv-kmp:publishLinuxArm64PublicationToMavenLocal
+          :libyuv-kmp:publishMingwX64PublicationToMavenLocal
+          :libyuv-kmp:publishAndroidNativeArm64PublicationToMavenLocal
+          :libyuv-kmp:publishAndroidNativeArm32PublicationToMavenLocal
+          :libyuv-kmp:publishAndroidNativeX64PublicationToMavenLocal
+          :libyuv-kmp:publishAndroidNativeX86PublicationToMavenLocal
+          :jni-jvm-linux-x86_64:publishToMavenLocal
+          :jni-jvm-linux-aarch64:publishToMavenLocal
+
+      - name: Verify Maven Local artifacts
+        run: |
+          REPO="$HOME/.m2/repository/cn/enaium/libyuv"
+          AAR=$(find "$REPO" -path "*libyuv-kmp-android/1.0.0/*.aar" -print -quit)
+          test -n "$AAR" || { echo "FAIL: Android AAR missing"; exit 1; }
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            unzip -l "$AAR" | grep -q "jni/$abi/libyuv_jni.so" || {
+              echo "FAIL: AAR lacks $abi JNI library"
+              exit 1
+            }
+          done
+          JNI_JAR=$(find "$REPO" -path "*libyuv-kmp-jni-jvm-linux-x86_64/1.0.0/*.jar" -print -quit)
+          test -n "$JNI_JAR" || { echo "FAIL: linux JNI jar missing"; exit 1; }
+          unzip -l "$JNI_JAR" | grep -q "libyuv_jni.so" || { echo "FAIL: .so missing from linux JNI jar"; exit 1; }
+          test -n "$(find "$REPO" -name '*.klib' -print -quit)" || { echo "FAIL: no Linux/MinGW/AndroidNative klib published"; exit 1; }
+          for artifact in \
+            libyuv-kmp-android \
+            libyuv-kmp-linuxx64 libyuv-kmp-linuxarm64 \
+            libyuv-kmp-mingwx64 \
+            libyuv-kmp-androidnativearm64 libyuv-kmp-androidnativearm32 \
+            libyuv-kmp-androidnativex64 libyuv-kmp-androidnativex86; do
+            if [ ! -d "$REPO/$artifact/1.0.0" ]; then
+              echo "FAIL: missing Maven Local artifact $artifact"
+              exit 1
+            fi
+          done
+          echo "OK: Android AAR, Linux JNI and klibs present"
+
   test-windows:
     name: Test Windows (JVM + MinGW)
     runs-on: windows-latest
@@ -160,3 +238,15 @@ jobs:
           $dll = "jni/jvm/windows-x86_64/build/jni-native/windows-x86_64/yuv_jni.dll"
           if (!(Test-Path $dll)) { throw "Missing $dll" }
           Write-Output "OK: $((Get-Item $dll).Length) bytes"
+
+      - name: Publish to Maven Local
+        run: ./gradlew --no-daemon --stacktrace :jni-jvm-windows-x86_64:publishToMavenLocal
+
+      - name: Verify Maven Local artifact
+        shell: pwsh
+        run: |
+          $jar = Join-Path $env:USERPROFILE ".m2\repository\cn\enaium\libyuv\libyuv-kmp-jni-jvm-windows-x86_64\1.0.0\libyuv-kmp-jni-jvm-windows-x86_64-1.0.0.jar"
+          if (!(Test-Path $jar)) { throw "Missing $jar" }
+          $entries = & jar tf $jar
+          if (-not ($entries -match "yuv_jni.dll")) { throw "yuv_jni.dll missing from $jar" }
+          Write-Output "OK: Maven Local JNI jar contains yuv_jni.dll"

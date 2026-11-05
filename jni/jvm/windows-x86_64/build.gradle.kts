@@ -96,9 +96,11 @@ tasks.named<Copy>("processResources") {
     }
 }
 
+val hasSigningKey = rootProject.extra["hasSigningKey"] as Boolean
+
 mavenPublishing {
     publishToMavenCentral(automaticRelease = true)
-    signAllPublications()
+    if (hasSigningKey) signAllPublications()
     coordinates(
         groupId = rootProject.group.toString(),
         artifactId = "libyuv-kmp-jni-jvm-$classifier",
