@@ -115,6 +115,7 @@ enum lky_op {
   LKY_OP_TEST_CPU_FLAG = 56,
 
   LKY_OP_ANDROID420_TO_I420 = 57,
+  LKY_OP_I420_TO_RGBA_BT709 = 58,
 };
 
 /* libyuv version (LIBYUV_VERSION). */

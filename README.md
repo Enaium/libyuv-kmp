@@ -210,7 +210,8 @@ convert -> encode -> decode -> present loop entirely on the native side:
    encoded access units to a second `AMediaCodec` decoder.
 4. The decoder's YUV output is converted to RGBA with a BT.709 matrix (the
    camera colorspace), uploaded to an SDL texture, and drawn with ImGui. The
-   UI font and widget metrics scale with the window's display density.
+   overlay reports the render, encode and decode rates. The UI font and widget
+   metrics scale with the window's display density.
 
 The shared library is packaged as `libmain.so` and loaded by SDLActivity; the
 wrapper APK supports `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`. The same UI

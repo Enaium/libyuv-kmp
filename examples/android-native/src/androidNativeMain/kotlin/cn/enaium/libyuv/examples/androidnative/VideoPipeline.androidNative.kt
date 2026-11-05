@@ -307,34 +307,6 @@ private class AndroidVideoPipeline : VideoPipeline {
         decodedV = ByteArray(cw * ch)
     }
 
-    private fun i420ToRgbaBt709(
-        yPlane: ByteArray,
-        uPlane: ByteArray,
-        vPlane: ByteArray,
-        out: ByteArray,
-        width: Int,
-        height: Int,
-    ) {
-        var o = 0
-        for (row in 0 until height) {
-            val yRow = row * width
-            val cRow = (row / 2) * ((width + 1) / 2)
-            for (col in 0 until width) {
-                val yv = ((yPlane[yRow + col].toInt() and 0xFF) - 16).coerceAtLeast(0) * 255 / 219
-                val uv = cRow + col / 2
-                val u = ((uPlane[uv].toInt() and 0xFF) - 128) * 255 / 224
-                val v = ((vPlane[uv].toInt() and 0xFF) - 128) * 255 / 224
-                val r = (yv + 1.5748 * v).toInt().coerceIn(0, 255)
-                val g = (yv - 0.1873 * u - 0.4681 * v).toInt().coerceIn(0, 255)
-                val b = (yv + 1.8556 * u).toInt().coerceIn(0, 255)
-                out[o++] = r.toByte()
-                out[o++] = g.toByte()
-                out[o++] = b.toByte()
-                out[o++] = 255.toByte()
-            }
-        }
-    }
-
     private fun pumpCamera() {
         val cam = camera ?: return
         if (!cam.acquire(sourceY, sourceU, sourceV)) return
@@ -524,7 +496,7 @@ private class AndroidVideoPipeline : VideoPipeline {
             val y = data.copyOfRange(0, ySize)
             val u = data.copyOfRange(uOffset, uOffset + uSize)
             val v = data.copyOfRange(vOffset, vOffset + uSize)
-            i420ToRgbaBt709(y, u, v, rgbaOut, w, h)
+            LibYuv.i420ToRgbaBt709(y, u, v, rgbaOut, w, h, stride, chromaStride, chromaStride)
         } else {
             val chromaStride = stride
             val uvSize = chromaStride * chromaHeight
@@ -535,7 +507,7 @@ private class AndroidVideoPipeline : VideoPipeline {
             val y = data.copyOfRange(0, ySize)
             val uv = data.copyOfRange(uvOffset, uvOffset + uvSize)
             LibYuv.nv12ToI420(y, uv, decodedY, decodedU, decodedV, w, h, stride, chromaStride)
-            i420ToRgbaBt709(decodedY, decodedU, decodedV, rgbaOut, w, h)
+            LibYuv.i420ToRgbaBt709(decodedY, decodedU, decodedV, rgbaOut, w, h)
         }
         return VideoFrame(w, h, rgbaOut)
     }

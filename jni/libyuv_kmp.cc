@@ -92,6 +92,44 @@ int Dispatch(int op,
     case LKY_OP_I420_TO_RGBA:
       return libyuv::I420ToRGBA(Src(r, 0), a[2], Src(r, 1), a[3], Src(r, 2),
                                 a[4], Dst(r, 3), a[5], a[0], a[1]);
+    case LKY_OP_I420_TO_RGBA_BT709: {
+      // Explicit BT.709 limited-range coefficients. libyuv's matrix helper
+      // expects a different constant/range combination than the camera's
+      // YUV_420_888 stream on Android; the explicit formula matches the
+      // reference conversion and still runs at C speed.
+      const uint8_t* src_y = Src(r, 0);
+      const uint8_t* src_u = Src(r, 1);
+      const uint8_t* src_v = Src(r, 2);
+      uint8_t* dst = Dst(r, 3);
+      const int src_stride_y = a[2];
+      const int src_stride_u = a[3];
+      const int src_stride_v = a[4];
+      const int dst_stride = a[5];
+      auto clamp8 = [](float value) -> uint8_t {
+        return static_cast<uint8_t>(value < 0.0f ? 0.0f
+                                                 : (value > 255.0f ? 255.0f : value));
+      };
+      for (int y = 0; y < a[1]; ++y) {
+        const uint8_t* y_row = src_y + static_cast<size_t>(y) * src_stride_y;
+        const uint8_t* u_row =
+            src_u + static_cast<size_t>(y / 2) * src_stride_u;
+        const uint8_t* v_row =
+            src_v + static_cast<size_t>(y / 2) * src_stride_v;
+        uint8_t* dst_row = dst + static_cast<size_t>(y) * dst_stride;
+        for (int x = 0; x < a[0]; ++x) {
+          const float yy = static_cast<float>(y_row[x] - 16 < 0 ? 0 : y_row[x] - 16) *
+                           255.0f / 219.0f;
+          const float uu = static_cast<float>(u_row[x / 2] - 128) * 255.0f / 224.0f;
+          const float vv = static_cast<float>(v_row[x / 2] - 128) * 255.0f / 224.0f;
+          uint8_t* pixel = dst_row + static_cast<size_t>(x) * 4;
+          pixel[0] = clamp8(yy + 1.5748f * vv);
+          pixel[1] = clamp8(yy - 0.1873f * uu - 0.4681f * vv);
+          pixel[2] = clamp8(yy + 1.8556f * uu);
+          pixel[3] = 255;
+        }
+      }
+      return 0;
+    }
     case LKY_OP_I420_TO_RGB24:
       return libyuv::I420ToRGB24(Src(r, 0), a[2], Src(r, 1), a[3], Src(r, 2),
                                  a[4], Dst(r, 3), a[5], a[0], a[1]);

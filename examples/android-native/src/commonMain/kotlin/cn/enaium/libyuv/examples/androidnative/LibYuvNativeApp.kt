@@ -26,6 +26,7 @@ import cn.enaium.imgui.ImGui
 import cn.enaium.imgui.ImGuiCond
 import cn.enaium.imgui.ImGuiWindowFlags
 import cn.enaium.imgui.ImVec2
+import cn.enaium.sdl.SDL
 import kotlin.math.min
 
 /**
@@ -50,6 +51,13 @@ private val renderer = NativeRenderer()
 
 private class NativeRenderer {
     private var lastFrame: VideoFrame? = null
+    private var fpsSince = SDL.getTicks()
+    private var fpsFrames = 0
+    private var renderFps = 0f
+    private var lastEncoded = 0L
+    private var lastDecoded = 0L
+    private var encodeRate = 0f
+    private var decodeRate = 0f
 
     fun draw(pipeline: VideoPipeline, presenter: ImGuiSdlHost.FramePresenter) {
         val frame = pipeline.currentFrame()
@@ -63,6 +71,7 @@ private class NativeRenderer {
         presenter: ImGuiSdlHost.FramePresenter,
     ) {
         val status = pipeline.status
+        updateRates(status)
         val display = ImGui.getIO().displaySize
         ImGui.setNextWindowPos(ImVec2(0f, 0f), ImGuiCond.ALWAYS)
         ImGui.setNextWindowSize(display, ImGuiCond.ALWAYS)
@@ -71,6 +80,10 @@ private class NativeRenderer {
         ImGui.text("libyuv-kmp Android native loopback")
         ImGui.text("capture: ${status.source}")
         ImGui.text("pipeline: ${status.path}")
+        ImGui.text(
+            "render ${renderFps.toInt()} fps  |  encode ${encodeRate.toInt()}/s  |  " +
+                "decode ${decodeRate.toInt()}/s",
+        )
         ImGui.text(
             "encoded ${status.encodedFrames}  |  decoded ${status.decodedFrames}  |  " +
                 "rotation ${status.rotation}",
@@ -92,14 +105,28 @@ private class NativeRenderer {
         val scale = min(available.x / frame.width, available.y / frame.height).coerceAtLeast(0f)
         val drawWidth = frame.width * scale
         val drawHeight = frame.height * scale
-        val origin = ImGui.getCursorScreenPos()
-        val drawList = ImGui.getWindowDrawList()
 
         if (scale > 0f) {
             val texture = presenter.uploadRgba(frame.rgba, frame.width, frame.height)
             ImGui.image(texture, ImVec2(drawWidth, drawHeight))
         }
         ImGui.end()
+    }
+
+    private fun updateRates(status: PipelineStatus) {
+        fpsFrames++
+        val now = SDL.getTicks()
+        val elapsed = now - fpsSince
+        if (elapsed >= 1_000u) {
+            val seconds = elapsed.toFloat() / 1_000f
+            renderFps = fpsFrames / seconds
+            encodeRate = (status.encodedFrames - lastEncoded) / seconds
+            decodeRate = (status.decodedFrames - lastDecoded) / seconds
+            lastEncoded = status.encodedFrames
+            lastDecoded = status.decodedFrames
+            fpsSince = now
+            fpsFrames = 0
+        }
     }
 
     private companion object {

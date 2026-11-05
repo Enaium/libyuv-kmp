@@ -308,6 +308,30 @@ object LibYuv {
         srcStrideY, srcStrideU, srcStrideV, dstStrideRgba, width * 4,
     )
 
+    /**
+     * Converts I420 to RGBA using the BT.709 limited-range matrix.
+     *
+     * The plain [i420ToRgba] uses libyuv's BT.601 constants. Camera streams
+     * tagged BT.709 need this variant or saturated colors pick up a magenta
+     * cast.
+     */
+    fun i420ToRgbaBt709(
+        srcY: ByteArray, srcU: ByteArray, srcV: ByteArray, dstRgba: ByteArray,
+        width: Int, height: Int,
+        srcStrideY: Int = width,
+        srcStrideU: Int = (width + 1) / 2,
+        srcStrideV: Int = srcStrideU,
+        dstStrideRgba: Int = width * 4,
+    ) {
+        requireI420("src", srcY, srcU, srcV, width, height, srcStrideY, srcStrideU, srcStrideV)
+        requirePacked("dst RGBA", dstRgba, height, dstStrideRgba, width * 4)
+        invoke(
+            Op.I420ToRgbaBt709,
+            intArrayOf(width, height, srcStrideY, srcStrideU, srcStrideV, dstStrideRgba),
+            arrayOf(srcY, srcU, srcV, dstRgba),
+        )
+    }
+
     fun i420ToRgb24(
         srcY: ByteArray, srcU: ByteArray, srcV: ByteArray, dstRgb24: ByteArray,
         width: Int, height: Int,
@@ -1303,6 +1327,7 @@ internal enum class Op(val code: Int) {
     InitCpuFlags(55),
     TestCpuFlag(56),
     Android420ToI420(57),
+    I420ToRgbaBt709(58),
 }
 
 private fun invoke(op: Op, args: IntArray, regions: Array<ByteArray>) {
