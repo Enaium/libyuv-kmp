@@ -30,6 +30,26 @@ Emscripten, embed the binary into the published klib and instantiate it
 synchronously through a small JS bridge. No resource lookup or async
 initialization is required at runtime.
 
+The same standalone module is also published for plain JavaScript consumers as
+[`@enaium/libyuv-kmp`](https://www.npmjs.com/package/@enaium/libyuv-kmp):
+
+```bash
+npm install @enaium/libyuv-kmp
+```
+
+```js
+import { initLibYuvKmp } from "@enaium/libyuv-kmp";
+
+const libyuv = await initLibYuvKmp();
+console.log("libyuv version", libyuv.lky_version());
+```
+
+`initLibYuvKmp()` fetches the packaged `libyuv_wasm.wasm`; it also accepts a
+URL, `Response`, `ArrayBuffer` or typed array, and `instantiateLibYuvKmp(bytes)`
+instantiates synchronously. The module exports `lky_call_packed`, `lky_alloc`,
+`lky_free` and `lky_version`, using the same packed call format as the Kotlin,
+JNI and native bridges.
+
 ## Using the library
 
 Gradle (Kotlin Multiplatform / Android; platform variants are selected from

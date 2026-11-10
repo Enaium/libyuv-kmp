@@ -404,6 +404,101 @@ tasks.matching {
     dependsOn(generateWebWasmData)
 }
 
+// ==================== wasm: npm package ====================
+// The standalone Emscripten module and a small ESM loader are also published
+// as @enaium/libyuv-kmp for plain JavaScript consumers. The Kotlin/JS and
+// Kotlin/Wasm artifacts embed the same module and do not depend on npm.
+val npmPackageVersion: String by lazy {
+    val parts = project.version.toString().split('.')
+    if (parts.size <= 3) project.version.toString()
+    else parts.take(3).joinToString(".") + "-" + parts.drop(3).joinToString(".")
+}
+
+val wasmNpmDir = layout.buildDirectory.dir("npm").get().asFile
+val wasmNpmLoader = layout.projectDirectory.file("src/wasmNpm/libyuv_kmp.js")
+
+tasks.register("assembleWasmNpm") {
+    group = "build"
+    description = "Stages the @enaium/libyuv-kmp npm package in build/npm."
+    dependsOn(buildWebWasm)
+    inputs.file(wasmNpmLoader)
+    inputs.file(wasmOutput)
+    inputs.property("npmPackageVersion", npmPackageVersion)
+    outputs.dir(wasmNpmDir)
+    doLast {
+        wasmNpmDir.deleteRecursively()
+        wasmNpmDir.mkdirs()
+        wasmNpmLoader.asFile.copyTo(wasmNpmDir.resolve("libyuv_kmp.js"), overwrite = true)
+        wasmOutput.get().asFile.copyTo(wasmNpmDir.resolve("libyuv_wasm.wasm"), overwrite = true)
+        rootProject.file("LICENSE").copyTo(wasmNpmDir.resolve("LICENSE"), overwrite = true)
+        wasmNpmDir.resolve("README.md").writeText(
+            """
+            # @enaium/libyuv-kmp
+
+            Standalone libyuv WebAssembly module and ESM loader.
+
+            ```js
+            import { initLibYuvKmp } from "@enaium/libyuv-kmp";
+
+            const libyuv = await initLibYuvKmp();
+            console.log("libyuv version", libyuv.lky_version());
+            ```
+
+            The loader accepts a URL, `Response`, `ArrayBuffer` or typed array.
+            Use `instantiateLibYuvKmp(bytes)` for synchronous instantiation.
+            The module exports `lky_call_packed`, `lky_alloc`, `lky_free` and
+            `lky_version`; the packed call format is shared with the Kotlin,
+            JNI and native bridges.
+
+            Kotlin/JS and Kotlin/Wasm consumers get the same module embedded in
+            the `libyuv-kmp` klib and do not need this package.
+            """.trimIndent() + "\n",
+        )
+        wasmNpmDir.resolve("package.json").writeText(
+            """
+            {
+              "name": "@enaium/libyuv-kmp",
+              "version": "$npmPackageVersion",
+              "description": "Standalone libyuv WebAssembly module and ESM loader",
+              "license": "MIT",
+              "type": "module",
+              "exports": {
+                ".": "./libyuv_kmp.js",
+                "./libyuv_wasm.wasm": "./libyuv_wasm.wasm",
+                "./package.json": "./package.json"
+              },
+              "files": ["libyuv_kmp.js", "libyuv_wasm.wasm", "README.md", "LICENSE"],
+              "homepage": "https://github.com/Enaium/libyuv-kmp",
+              "repository": {
+                "type": "git",
+                "url": "git+https://github.com/Enaium/libyuv-kmp.git"
+              }
+            }
+            """.trimIndent() + "\n",
+        )
+    }
+}
+
+tasks.register<Exec>("publishWasmNpm") {
+    group = "publishing"
+    description = "Publishes @enaium/libyuv-kmp to npm (token: npm.publish.key)."
+    dependsOn("assembleWasmNpm")
+    workingDir = wasmNpmDir
+    val npmKey = providers.gradleProperty("npm.publish.key")
+    doFirst {
+        val key = npmKey.orNull?.takeIf { it.isNotBlank() }
+            ?: throw GradleException(
+                "npm.publish.key is not set: add it to ~/.gradle/gradle.properties " +
+                    "or pass -Pnpm.publish.key=<token>",
+            )
+        environment("NODE_AUTH_TOKEN", key)
+        wasmNpmDir.resolve(".npmrc").writeText(
+            "//registry.npmjs.org/:_authToken=\${NODE_AUTH_TOKEN}\n",
+        )
+    }
+    commandLine("npm", "publish", "--access", "public", "--tag", "latest")
+}
+
 // ==================== Native static libraries ====================
 fun registerNativeBuildTasks(targetName: String, cmakeFlags: List<String> = emptyList()) {
     val outputDir = layout.buildDirectory.dir("native/$targetName").get().asFile

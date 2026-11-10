@@ -41,6 +41,20 @@ jobs:
           :libyuv-kmp:jsNodeTest
           :libyuv-kmp:wasmJsNodeTest
 
+      - name: Stage the @enaium/libyuv-kmp npm package
+        run: ./gradlew --no-daemon --stacktrace :libyuv-kmp:assembleWasmNpm
+
+      - name: Smoke test the npm package loader
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import { instantiateLibYuvKmp } from "./libyuv-kmp/build/npm/libyuv_kmp.js";
+            const exports = instantiateLibYuvKmp(
+              fs.readFileSync("./libyuv-kmp/build/npm/libyuv_wasm.wasm"),
+            );
+            console.log("libyuv wasm version", exports.lky_version());
+          '
+
       - name: Compile the remaining Apple targets
         run: >
           ./gradlew --no-daemon --stacktrace
