@@ -57,7 +57,7 @@ Gradle metadata):
 
 ```kotlin
 dependencies {
-    implementation("cn.enaium.libyuv:libyuv-kmp:1.2.0")
+    implementation("cn.enaium.libyuv:libyuv-kmp:1.2.1-fixed.keaq6eLd2")
 }
 ```
 
@@ -67,12 +67,12 @@ Maven (JVM; the JNI runtime artifacts are pulled transitively):
 <dependency>
     <groupId>cn.enaium.libyuv</groupId>
     <artifactId>libyuv-kmp-jvm</artifactId>
-    <version>1.2.0</version>
+    <version>1.2.1-fixed.keaq6eLd2</version>
 </dependency>
 ```
 
 For a plain Maven Android build that consumes AARs, use
-`cn.enaium.libyuv:libyuv-kmp-android:1.2.0`. The `libyuv-kmp` coordinate above is
+`cn.enaium.libyuv:libyuv-kmp-android:1.2.1-fixed.keaq6eLd2`. The `libyuv-kmp` coordinate above is
 intended for Gradle metadata-aware consumers and resolves the correct platform
 variant automatically.
 

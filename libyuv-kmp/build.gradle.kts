@@ -409,8 +409,11 @@ tasks.matching {
 // as @enaium/libyuv-kmp for plain JavaScript consumers. The Kotlin/JS and
 // Kotlin/Wasm artifacts embed the same module and do not depend on npm.
 val npmPackageVersion: String by lazy {
-    val parts = project.version.toString().split('.')
-    if (parts.size <= 3) project.version.toString()
+    val version = project.version.toString()
+    // A version with a prerelease suffix is already valid npm semver.
+    if (version.contains('-')) return@lazy version
+    val parts = version.split('.')
+    if (parts.size <= 3) version
     else parts.take(3).joinToString(".") + "-" + parts.drop(3).joinToString(".")
 }
 
