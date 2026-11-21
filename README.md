@@ -31,7 +31,9 @@ synchronously through a small JS bridge. No resource lookup or async
 initialization is required at runtime.
 
 The same standalone module is also published for plain JavaScript consumers as
-[`@enaium/libyuv-kmp`](https://www.npmjs.com/package/@enaium/libyuv-kmp):
+[`@enaium/libyuv-kmp`](https://www.npmjs.com/package/@enaium/libyuv-kmp).
+The npm package is published manually from a workstation, not by GitHub
+Actions:
 
 ```bash
 npm install @enaium/libyuv-kmp
@@ -299,6 +301,14 @@ Linux publishes the Android AAR, Linux/MinGW/Android-Native klibs and the
 Linux JNI libraries, and Windows publishes the MinGW JNI library. Signing
 uses the standard `signing.keyId`, `signing.secretKeyRingFile` and
 `signing.password` Gradle properties.
+
+npm publication is not part of any GitHub Actions workflow. Publish it manually
+from a workstation with an npm token in `~/.gradle/gradle.properties`
+(`npm.publish.key`) or passed as a Gradle property:
+
+```bash
+./gradlew :libyuv-kmp:publishWasmNpm -Pnpm.publish.key=<token>
+```
 
 ## License
 
